@@ -62,6 +62,8 @@ interface PageCapture {
     screenshots: Screenshot[];
 }
 
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest) {
     let browser: Browser | null = null;
     const scoutId = `scout-${Date.now()}`;
@@ -91,11 +93,14 @@ export async function POST(req: NextRequest) {
 
         // Launch browser
         if (process.env.NODE_ENV === "production") {
+            // @ts-ignore
+            await chromium.font("https://raw.githack.com/googlefonts/roboto/master/src/hinted/Roboto-Regular.ttf");
+
             const executablePath = await chromium.executablePath(
                 "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
             );
             browser = await puppeteerCore.launch({
-                args: chromium.args,
+                args: [...chromium.args, "--disable-web-security", "--font-render-hinting=none"],
                 // @ts-ignore
                 defaultViewport: chromium.defaultViewport as any,
                 executablePath,
@@ -121,7 +126,7 @@ export async function POST(req: NextRequest) {
         emitProgress(scoutId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
 
         // Navigate to the target URL
-        await page.goto(url, { waitUntil: "networkidle0" });
+        await page.goto(url, { waitUntil: "networkidle2" });
 
         // Dismiss cookie banners
         emitProgress(scoutId, "cookies", "Dismissing cookie banners...", 20);
@@ -197,7 +202,7 @@ export async function POST(req: NextRequest) {
             const pct = 40 + Math.round((i / totalPages) * 25);
             emitProgress(scoutId, "capture", `Scouting page ${i + 2} of ${totalPages + 1}...`, pct);
             try {
-                await page.goto(navLinks[i], { waitUntil: "networkidle0" });
+                await page.goto(navLinks[i], { waitUntil: "networkidle2" });
                 await dismissCookieBanners(page);
                 await page.evaluateHandle('document.fonts.ready');
                 await page.evaluate(() => new Promise((r) => setTimeout(r, 2000)));
@@ -348,6 +353,7 @@ async function capturePageScreenshots(
     prefix: string
 ): Promise<PageCapture> {
     const screenshots: Screenshot[] = [];
+    const uploadPromises: Promise<void>[] = [];
 
     for (const device of devices) {
         const viewport = VIEWPORTS[device as keyof typeof VIEWPORTS];
@@ -359,14 +365,16 @@ async function capturePageScreenshots(
         // Hero screenshot
         const heroName = `${prefix}-${device}-hero.png`;
         const heroBuffer = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: viewport.width, height: viewport.height } });
-        const heroUrl = await uploadToStorage(heroBuffer as Buffer, scoutId, heroName);
-        screenshots.push({ path: heroUrl, viewport: device, width: viewport.width, height: viewport.height, type: "hero" });
+        uploadPromises.push(uploadToStorage(heroBuffer as Buffer, scoutId, heroName).then(url => {
+            screenshots.push({ path: url, viewport: device, width: viewport.width, height: viewport.height, type: "hero" });
+        }));
 
         // Full page screenshot
         const fullName = `${prefix}-${device}-full.png`;
         const fullBuffer = await page.screenshot({ type: "png", fullPage: true });
-        const fullUrl = await uploadToStorage(fullBuffer as Buffer, scoutId, fullName);
-        screenshots.push({ path: fullUrl, viewport: device, width: viewport.width, height: 0, type: "full" });
+        uploadPromises.push(uploadToStorage(fullBuffer as Buffer, scoutId, fullName).then(url => {
+            screenshots.push({ path: url, viewport: device, width: viewport.width, height: 0, type: "full" });
+        }));
 
         // Feature screenshots (3 sections)
         const pageHeight = await page.evaluate(() => document.body.scrollHeight);
@@ -377,10 +385,12 @@ async function capturePageScreenshots(
             const yOffset = Math.min(sectionHeight * s, pageHeight - viewport.height);
             const featureName = `${prefix}-${device}-feature-${s}.png`;
             const featureBuffer = await page.screenshot({ type: "png", clip: { x: 0, y: yOffset, width: viewport.width, height: viewport.height } });
-            const featureUrl = await uploadToStorage(featureBuffer as Buffer, scoutId, featureName);
-            screenshots.push({ path: featureUrl, viewport: device, width: viewport.width, height: viewport.height, type: "feature" });
+            uploadPromises.push(uploadToStorage(featureBuffer as Buffer, scoutId, featureName).then(url => {
+                screenshots.push({ path: url, viewport: device, width: viewport.width, height: viewport.height, type: "feature" });
+            }));
         }
     }
 
+    await Promise.all(uploadPromises);
     return { url: pageUrl, title, screenshots };
 }

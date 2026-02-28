@@ -121,14 +121,15 @@ export async function POST(req: NextRequest) {
         emitProgress(scoutId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
 
         // Navigate to the target URL
-        await page.goto(url, { waitUntil: "networkidle2" });
+        await page.goto(url, { waitUntil: "networkidle0" });
 
         // Dismiss cookie banners
         emitProgress(scoutId, "cookies", "Dismissing cookie banners...", 20);
         await dismissCookieBanners(page);
 
-        // Wait for page to settle after cookie dismissal
-        await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
+        // Wait for page to settle after cookie dismissal and styles/fonts to load
+        await page.evaluateHandle('document.fonts.ready');
+        await page.evaluate(() => new Promise((r) => setTimeout(r, 2000)));
 
         // Extract text content for copy generation
         emitProgress(scoutId, "text", "Reading site content...", 25);
@@ -196,9 +197,10 @@ export async function POST(req: NextRequest) {
             const pct = 40 + Math.round((i / totalPages) * 25);
             emitProgress(scoutId, "capture", `Scouting page ${i + 2} of ${totalPages + 1}...`, pct);
             try {
-                await page.goto(navLinks[i], { waitUntil: "networkidle2" });
+                await page.goto(navLinks[i], { waitUntil: "networkidle0" });
                 await dismissCookieBanners(page);
-                await page.evaluate(() => new Promise((r) => setTimeout(r, 500)));
+                await page.evaluateHandle('document.fonts.ready');
+                await page.evaluate(() => new Promise((r) => setTimeout(r, 2000)));
                 const interiorTitle = await page.title();
                 const interiorCapture = await capturePageScreenshots(
                     page, navLinks[i], interiorTitle, devices, scoutId, `page-${i + 1}`
@@ -352,7 +354,7 @@ async function capturePageScreenshots(
         if (!viewport) continue;
 
         await page.setViewport(viewport);
-        await page.evaluate(() => new Promise((r) => setTimeout(r, 500)));
+        await page.evaluate(() => new Promise((r) => setTimeout(r, 1500)));
 
         // Hero screenshot
         const heroName = `${prefix}-${device}-hero.png`;

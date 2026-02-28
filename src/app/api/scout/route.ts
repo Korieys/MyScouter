@@ -93,9 +93,6 @@ export async function POST(req: NextRequest) {
 
         // Launch browser
         if (process.env.NODE_ENV === "production") {
-            // @ts-ignore
-            await chromium.font("https://raw.githack.com/googlefonts/roboto/master/src/hinted/Roboto-Regular.ttf");
-
             const executablePath = await chromium.executablePath(
                 "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
             );

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { onProgress } from "@/lib/progress";
+import { adminDb } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -13,18 +13,35 @@ export async function GET(req: NextRequest) {
 
     const stream = new ReadableStream({
         start(controller) {
-            const cleanup = onProgress(jobId, (event) => {
-                const data = `data: ${JSON.stringify(event)}\n\n`;
-                try {
-                    controller.enqueue(encoder.encode(data));
-                } catch {
-                    // Stream closed
-                }
-            });
+            let processedEventCount = 0;
+
+            const unsubscribe = adminDb.collection("scout-jobs").doc(jobId)
+                .onSnapshot((docSnapshot) => {
+                    if (docSnapshot.exists) {
+                        const data = docSnapshot.data();
+                        if (data && data.events && Array.isArray(data.events)) {
+                            // Only send new events
+                            const newEvents = data.events.slice(processedEventCount);
+
+                            newEvents.forEach(event => {
+                                const payload = `data: ${JSON.stringify(event)}\n\n`;
+                                try {
+                                    controller.enqueue(encoder.encode(payload));
+                                } catch {
+                                    // Stream closed
+                                }
+                            });
+
+                            processedEventCount = data.events.length;
+                        }
+                    }
+                }, (error) => {
+                    console.error("Firestore snapshot error:", error);
+                });
 
             // Clean up when the client disconnects
             req.signal.addEventListener("abort", () => {
-                cleanup();
+                unsubscribe();
                 try {
                     controller.close();
                 } catch {
@@ -34,7 +51,7 @@ export async function GET(req: NextRequest) {
 
             // Auto-close after 5 minutes
             setTimeout(() => {
-                cleanup();
+                unsubscribe();
                 try {
                     controller.close();
                 } catch {

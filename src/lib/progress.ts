@@ -1,5 +1,5 @@
-// Shared in-memory progress tracking for scout jobs
-// In production, this would use Redis or similar
+import { adminDb } from "./firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 export interface ProgressEvent {
     step: string;
@@ -8,57 +8,26 @@ export interface ProgressEvent {
     timestamp: number;
 }
 
-const jobProgress = new Map<string, ProgressEvent[]>();
-const jobListeners = new Map<string, Set<(event: ProgressEvent) => void>>();
-
-export function emitProgress(jobId: string, step: string, detail: string, progress: number) {
+export async function emitProgress(jobId: string, step: string, detail: string, progress: number) {
     const event: ProgressEvent = { step, detail, progress, timestamp: Date.now() };
 
-    if (!jobProgress.has(jobId)) {
-        jobProgress.set(jobId, []);
-    }
-    jobProgress.get(jobId)!.push(event);
+    try {
+        const jobRef = adminDb.collection("scout-jobs").doc(jobId);
 
-    // Notify all listeners
-    const listeners = jobListeners.get(jobId);
-    if (listeners) {
-        listeners.forEach((cb) => cb(event));
+        // Use arrayUnion to safely append the event in a transaction-free way
+        await jobRef.set({
+            events: FieldValue.arrayUnion(event),
+            updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+    } catch (err) {
+        console.error("Failed to emit progress for job", jobId, err);
     }
 }
 
-export function onProgress(jobId: string, callback: (event: ProgressEvent) => void): () => void {
-    if (!jobListeners.has(jobId)) {
-        jobListeners.set(jobId, new Set());
+export async function clearProgress(jobId: string) {
+    try {
+        await adminDb.collection("scout-jobs").doc(jobId).delete();
+    } catch (err) {
+        console.error("Failed to clear progress for job", jobId, err);
     }
-    jobListeners.get(jobId)!.add(callback);
-
-    // Send any existing events
-    const existing = jobProgress.get(jobId);
-    if (existing) {
-        existing.forEach((e) => callback(e));
-    }
-
-    // Return cleanup function
-    return () => {
-        jobListeners.get(jobId)?.delete(callback);
-        if (jobListeners.get(jobId)?.size === 0) {
-            jobListeners.delete(jobId);
-        }
-    };
-}
-
-export function clearProgress(jobId: string) {
-    jobProgress.delete(jobId);
-    jobListeners.delete(jobId);
-}
-
-// UUID -> outputDir mapping (never expose filesystem paths to client)
-const jobPaths = new Map<string, string>();
-
-export function setJobPath(jobId: string, outputDir: string) {
-    jobPaths.set(jobId, outputDir);
-}
-
-export function getJobPath(jobId: string): string | undefined {
-    return jobPaths.get(jobId);
 }

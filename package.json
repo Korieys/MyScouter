@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
+    "@sparticuz/chromium-min": "^143.0.4",
     "@types/archiver": "^7.0.0",
     "archiver": "^7.0.1",
     "firebase": "^12.9.0",
@@ -17,12 +18,14 @@
     "next": "16.1.6",
     "openai": "^6.22.0",
     "puppeteer": "^24.37.5",
+    "puppeteer-core": "^24.37.5",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/puppeteer-core": "^5.4.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

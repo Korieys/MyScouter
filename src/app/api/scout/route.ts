@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import puppeteer, { type Browser, type Page } from "puppeteer";
+import puppeteerDev from "puppeteer";
+import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
+import chromium from "@sparticuz/chromium-min";
 import sharp from "sharp";
 import { emitProgress } from "@/lib/progress";
 import { db } from "@/lib/firebase";
@@ -88,17 +90,31 @@ export async function POST(req: NextRequest) {
         emitProgress(scoutId, "browser", "Launching scout browser...", 10);
 
         // Launch browser
-        browser = await puppeteer.launch({
-            headless: true,
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-            ],
-        });
+        if (process.env.NODE_ENV === "production") {
+            const executablePath = await chromium.executablePath(
+                "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
+            );
+            browser = await puppeteerCore.launch({
+                args: chromium.args,
+                // @ts-ignore
+                defaultViewport: chromium.defaultViewport as any,
+                executablePath,
+                // @ts-ignore
+                headless: chromium.headless as any,
+            });
+        } else {
+            browser = await puppeteerDev.launch({
+                headless: true,
+                args: [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                ],
+            });
+        }
 
-        const page = await browser.newPage();
+        const page = await browser.newPage() as unknown as Page;
         page.setDefaultNavigationTimeout(30000);
         page.setDefaultTimeout(15000);
 

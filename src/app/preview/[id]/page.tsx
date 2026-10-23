@@ -47,6 +47,7 @@ export default function AssetPreview() {
     const params = useParams();
     const [data, setData] = useState<ScoutData | null>(null);
     const [downloading, setDownloading] = useState(false);
+    const [downloadError, setDownloadError] = useState('');
     const [loading, setLoading] = useState(true);
     const [compareMode, setCompareMode] = useState(false);
 
@@ -85,24 +86,34 @@ export default function AssetPreview() {
     };
 
     const handleDownload = async () => {
-        if (!data) return;
+        if (!data || downloading) return;
         setDownloading(true);
+        setDownloadError('');
         try {
             const res = await fetch("/api/bundle", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ scoutId: data.id || data.scoutId }),
+                body: JSON.stringify({ scoutId: data.id || data.scoutId,
+                    assets: [...data.pages.flatMap(page => page.screenshots.map(shot => shot.path)), ...(data.enhancedAssets || [])],
+                }),
+                signal: AbortSignal.timeout(60000),
             });
-            if (!res.ok) throw new Error("Bundle failed");
+            if (!res.ok) {
+                const failure = await res.json().catch(() => null);
+                throw new Error(failure?.error || 'Download failed. Please try again.');
+            }
             const blob = await res.blob();
+            if (!blob.size || !blob.type.includes('application/zip')) throw new Error('The download was incomplete. Please try again.');
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
             a.download = `myscouter-${data.id || data.scoutId}.zip`;
+            document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(url);
+            a.remove();
+            setTimeout(() => window.URL.revokeObjectURL(url), 60000);
         } catch (err) {
-            console.error("Download error:", err);
+            setDownloadError(err instanceof Error && err.name !== 'TimeoutError' ? err.message : 'Packing took too long. Please retry the download.');
         } finally {
             setDownloading(false);
         }
@@ -186,6 +197,7 @@ export default function AssetPreview() {
                     </button>
                 </div>
             </header>
+            {downloadError && <p role="alert">{downloadError}</p>}
 
             <hr className="rope-divider" />
 

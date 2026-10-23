@@ -15,7 +15,7 @@
     "archiver": "^7.0.1",
     "firebase": "^12.9.0",
     "firebase-admin": "^13.6.1",
-    "next": "16.1.6",
+    "next": "16.4.3",
     "openai": "^6.22.0",
     "puppeteer": "^24.37.5",
     "puppeteer-core": "^24.37.5",

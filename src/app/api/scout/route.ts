@@ -10,6 +10,7 @@ import { requireUser, saveAsset, SCOUT_COLLECTION } from '@/lib/scout-server';
 import { errorResponse, publicScout, readInput, ScoutError, type ScoutRecord } from '@/lib/scout-access';
 import { publicUrl, resolvePublic } from '@/lib/public-network';
 import { captureBrowserArgs, startCaptureProxy } from '@/lib/capture-proxy';
+import { workStore } from '@/lib/work-store';
 
 // Viewport configs
 const VIEWPORTS = {
@@ -65,6 +66,9 @@ export async function POST(req: NextRequest) {
     let proxy: Awaited<ReturnType<typeof startCaptureProxy>> | null = null;
     const scoutId = `scout-${randomUUID()}`;
     let recordCreated = false;
+    let captureSaved = false;
+    let releaseWork: (()=>Promise<void>) | undefined;
+    const createdAt = new Date().toISOString();
     let expired = false;
     const deadline = setTimeout(() => {
         expired = true;
@@ -91,11 +95,15 @@ export async function POST(req: NextRequest) {
         }
 
         const parsedUrl = publicUrl(url);
+        const store = workStore(getAdmin().db);
+        const reservation = await store.reserve(userId,'capture');
+        if (reservation.cached) throw new Error('Unexpected capture reservation');
+        releaseWork = () => store.release(reservation.lease);
         await resolvePublic(parsedUrl);
 
         await getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId).create({
             id: scoutId, userId, url, domain: parsedUrl.hostname, brandColor, devices,
-            status: 'capturing', pages: [], enhancedAssets: [], copy: null, textContent: '', createdAt: new Date().toISOString(),
+            status: 'capturing', pages: [], enhancedAssets: [], copy: null, textContent: '', createdAt,
         });
         recordCreated = true;
         await emitProgress(scoutId, "init", "Preparing scout...", 5);
@@ -261,15 +269,17 @@ export async function POST(req: NextRequest) {
             status: "captured",
             enhancedAssets: [],
             copy: null,
-            createdAt: new Date().toISOString(),
+            createdAt,
             devices,
         };
 
-        await getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId).set(scoutRecord, {merge:true});
-        await emitProgress(scoutId, 'complete', 'Capture saved. Preparing assets...', 70);
+        await store.complete(reservation.lease,getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId),scoutRecord);
+        captureSaved = true;
+        releaseWork = undefined;
+        await emitProgress(scoutId, 'complete', 'Capture saved. Preparing assets...', 70).catch(() => {});
         return NextResponse.json(publicScout(scoutRecord), {headers:{'Cache-Control':'private, no-store'}});
     } catch (error) {
-        if (recordCreated) {
+        if (recordCreated && !captureSaved) {
             await getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId).update({status:'failed'}).catch(() => {});
             await emitProgress(scoutId, 'error', 'The capture could not finish. Please try again.', -1).catch(() => {});
         }
@@ -280,6 +290,7 @@ export async function POST(req: NextRequest) {
             await browser.close().catch(() => {});
         }
         await proxy?.close();
+        await releaseWork?.().catch(() => {});
     }
 }
 

@@ -2,16 +2,23 @@ import OpenAI from 'openai';
 import { requireScout, requireUser } from '@/lib/scout-server';
 import { errorResponse, readInput, ScoutError } from '@/lib/scout-access';
 import { validateCopy } from '@/lib/scout-copy';
+import { getAdmin } from '@/lib/firebase-admin';
+import { workStore } from '@/lib/work-store';
 export const maxDuration = 60;
 export async function POST(request: Request) {
+    let releaseWork: (()=>Promise<void>) | undefined;
     try {
         await requireUser(request);
         const { scoutId } = await readInput(request);
-        const { record, ref } = await requireScout(request, scoutId);
+        const { record, ref, uid } = await requireScout(request, scoutId);
         if (record.copy) return Response.json(record.copy, {headers:{'Cache-Control':'private, no-store'}});
         if (!['captured','complete'].includes(record.status)) throw new ScoutError(409, 'Wait for this capture to finish.');
         if (record.textContent.trim().length < 10) throw new ScoutError(422, 'This website has too little readable text to draft accurate copy. Your images are still available.');
         if (!process.env.OPENAI_API_KEY) throw new ScoutError(503, 'Copy generation is temporarily unavailable. Your images are still available.');
+        const store = workStore(getAdmin().db);
+        const reservation = await store.reserve(uid,'copy',ref);
+        if (reservation.cached) return Response.json(reservation.record.copy,{headers:{'Cache-Control':'private, no-store'}});
+        releaseWork = () => store.release(reservation.lease);
         const openai = new OpenAI({apiKey:process.env.OPENAI_API_KEY, timeout:40000, maxRetries:0});
         const completion = await openai.chat.completions.create({
             model:'gpt-4o-mini', temperature:0.5, max_tokens:700, response_format:{type:'json_object'},
@@ -19,7 +26,9 @@ export async function POST(request: Request) {
             {role:'user',content:JSON.stringify({domain:record.domain, pageTitle:record.pages[0]?.title || '', websiteEvidence:record.textContent.slice(0,8000)})}],
         });
         const copy = validateCopy(JSON.parse(completion.choices[0]?.message?.content || 'null'));
-        await ref.update({copy});
+        await store.complete(reservation.lease,ref,{copy});
+        releaseWork = undefined;
         return Response.json(copy, {headers:{'Cache-Control':'private, no-store'}});
     } catch (error) { return errorResponse(error, 'Copy generation could not finish. Your captured images are still available.'); }
+    finally { await releaseWork?.().catch(() => {}); }
 }

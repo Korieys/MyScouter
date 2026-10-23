@@ -16,6 +16,10 @@ Puppeteer/core 25.11.0 and Chromium-min/binary 153 are aligned. Sources: [Puppet
 
 AI copy uses saved website evidence, validates the returned shape, persists successful drafts, and does not fabricate fallback testimonials or results. The interface discloses website-text transmission to OpenAI and asks customers to review drafts.
 
+Expensive work now reserves shared, server-only Firestore capacity before it starts. The preview allows each account 10 capture attempts and 30 attempts each for enhancements and copy per UTC day, with one active request of each kind per account. Project-wide daily caps are 100 captures, 300 enhancements and 300 copy attempts; concurrent caps are 3, 6 and 12 respectively. Started attempts count even on failure because provider work may already have been billed. A successful saved result is reused without another reservation. Limits and retry timing are visible to customers.
+
+Reservations outlive each function's maximum runtime and remain active across midnight. Expired attempts cannot publish a result or clear a newer reservation. Enhancement objects have unique attempt-specific names so a late worker cannot overwrite a replacement's images. Final results and reservation release commit atomically. Failed final progress updates do not turn a successfully saved capture into a failure. These caps bound expensive job counts; they are not dollar-denominated cloud spending guarantees.
+
 ## Live configuration inspected October 23, 2026
 
 - Project: `myscouter-5f16b`; bucket: `myscouter-5f16b.firebasestorage.app`.
@@ -30,12 +34,14 @@ AI copy uses saved website evidence, validates the returned shape, persists succ
 
 TypeScript, lint and a production build are required. CI uses fictional public Firebase settings, no server credentials and no downloaded browser. The production dependency audit currently reports 20 advisory entries (0 critical, 11 high, 8 moderate, 1 low); remaining advisories need scoped follow-up.
 
+Nine additional database-emulator groups exercise real concurrent transactions, account/global capacity, failure and replay behavior, midnight/expiry fencing, cross-owner rejection, malformed usage state, unique enhancement names and client denial of private records/usage. The emulator is restricted to the disposable `demo-myscouter-readiness` project at `127.0.0.1:8187`; its rules fixture reproduces the inspected live policy and is not a policy deployment. Run with `firebase emulators:exec --config firebase.emulators.json --project demo-myscouter-readiness --only firestore "npm run test:database"`. Java 21 and Firebase CLI 15.34.0 are configured in CI; local Windows does not currently have Java on PATH.
+
 ## Remaining release gates
 
 - Fresh hosted capture, enhancement, copy, history and reopen, individual download, and ZIP integrity on this private-storage implementation.
 - Hosted anonymous and second-account rejection, plus direct unauthenticated object denial.
 - Real Chromium proxy-path verification, including redirect/subresource denial and normal public sites. Unit tests do not prove all browser network paths or isolate native browser exploits.
-- Shared per-account rate limits, concurrency leases and spend limits for capture and AI work. Current request limits and cached successful stages do not prevent repeated or simultaneous work.
+- Hosted reservation/limit behavior, edge abuse controls and operator-defined cloud/provider budgets and alerts. Shared job caps do not eliminate billing from rejected traffic or retained files.
 - A dedicated isolated capture worker with restricted cloud identity, retention/cleanup, user deletion, recovery of interrupted work, older-history pagination, support and mobile checks.
 - Resolve remaining dependency advisories; review legacy data exposure separately. No automatic legacy ownership migration is safe because the old API trusted caller identity.
 

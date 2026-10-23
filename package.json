@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:readiness": "tsx --test src/lib/*.test.mjs"
+    "test:readiness": "tsx --test src/lib/*.test.mjs",
+    "test:database": "tsx --test tests/database/*.test.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",

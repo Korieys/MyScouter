@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { authFetch, jsonResult } from '@/lib/auth-fetch';
+import { WORK_LIMITS } from '@/lib/work-policy';
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 
@@ -188,6 +189,7 @@ function ScoutForm() {
 
             {!authLoading && !user && <p><Link href="/login?next=/scout">Sign in to create and save your asset pack.</Link></p>}
             <p style={{fontSize:'0.85rem',color:'var(--rope)'}}>Your captures are saved privately to your account in Google Cloud. Readable website text is sent to OpenAI to prepare draft copy. Review the images and text before publishing.</p>
+            <p style={{fontSize:'0.85rem',color:'var(--rope)'}}>Preview allowance: {WORK_LIMITS.capture.accountDaily} capture attempts per day, with one capture running at a time. Mockup and copy retries each allow {WORK_LIMITS.copy.accountDaily} attempts. Limits reset at midnight UTC; failed attempts count.</p>
             {error && (
               <p style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--ember)" }}>
                 {error}

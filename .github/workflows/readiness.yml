@@ -26,3 +26,8 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run build
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # reviewed v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npx --yes firebase-tools@15.34.0 emulators:exec --config firebase.emulators.json --project demo-myscouter-readiness --only firestore "npm run test:database"

@@ -3,17 +3,27 @@ import sharp from "sharp";
 import { emitProgress } from "@/lib/progress";
 import { readAsset, requireScout, requireUser, saveAsset } from '@/lib/scout-server';
 import { errorResponse, readInput, ScoutError } from '@/lib/scout-access';
+import { getAdmin } from '@/lib/firebase-admin';
+import { attemptAsset, workStore } from '@/lib/work-store';
 export const maxDuration = 120;
 
 
 export async function POST(req: NextRequest) {
+    let releaseWork: (()=>Promise<void>) | undefined;
     try {
         await requireUser(req);
         const input = await readInput(req);
-        const {ref, record} = await requireScout(req, input.scoutId);
+        const {ref, record, uid} = await requireScout(req, input.scoutId);
         if (!['captured', 'complete'].includes(record.status)) throw new ScoutError(409, 'Wait for this capture to finish.');
         const {id: scoutId, brandColor, pages} = record;
         if (record.enhancedAssets.length) return NextResponse.json({success:true, assets:record.enhancedAssets, scoutId}, {headers:{'Cache-Control':'private, no-store'}});
+        const store = workStore(getAdmin().db);
+        const reservation = await store.reserve(uid,'enhance',ref);
+        if (reservation.cached) return NextResponse.json({success:true,assets:reservation.record.enhancedAssets,scoutId},{headers:{'Cache-Control':'private, no-store'}});
+        releaseWork = () => store.release(reservation.lease);
+        const {enhanceHero, createLaptopMockup, createBrowserChromeMockup, createPhoneMockup, createTabletMockup, createGridCollage, createSocialImage} = createEnhancer(
+            (buffer,id,name) => saveAsset(buffer,id,attemptAsset(name,reservation.lease.token)),
+        );
 
         const enhancedAssets: { path: string, type: string }[] = [];
         let step = 0;
@@ -110,8 +120,9 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        await ref.update({enhancedAssets: enhancedAssets.map(asset => asset.path), status: 'complete'});
-        await emitProgress(scoutId, "done", "All assets ready!", 100);
+        await store.complete(reservation.lease,ref,{enhancedAssets: enhancedAssets.map(asset => asset.path), status: 'complete'});
+        releaseWork = undefined;
+        await emitProgress(scoutId, "done", "All assets ready!", 100).catch(() => {});
 
         return NextResponse.json({
             success: true,
@@ -122,11 +133,12 @@ export async function POST(req: NextRequest) {
     } catch (error) {
         return errorResponse(error, 'Enhancement could not finish. Your captured images remain in your history.');
     }
+    finally { await releaseWork?.().catch(() => {}); }
 }
 
 // ==================== Enhancement Functions ====================
 
-const uploadToStorage = saveAsset;
+function createEnhancer(uploadToStorage: typeof saveAsset) {
 
 async function enhanceHero(inputBuffer: Buffer, brandColor: string, scoutId: string, basename: string): Promise<string> {
     const image = sharp(inputBuffer);
@@ -296,4 +308,7 @@ function hexToRgb(hex: string) {
     return result
         ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) }
         : { r: 45, g: 74, b: 34 };
+}
+
+return {enhanceHero,createLaptopMockup,createBrowserChromeMockup,createPhoneMockup,createTabletMockup,createGridCollage,createSocialImage};
 }

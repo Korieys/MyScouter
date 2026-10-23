@@ -1,0 +1,14 @@
+// Test fixture of the rules inspected October 23, 2026. Not a deployment file.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /scouts/{scoutId} {
+      allow get: if true;
+      allow list: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow write: if false;
+    }
+  }
+}

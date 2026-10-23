@@ -1,6 +1,7 @@
 export class ScoutError extends Error {
     status: number;
-    constructor(status: number, message: string) { super(message); this.status = status; }
+    retryAfter?: number;
+    constructor(status: number, message: string, retryAfter?:number) { super(message); this.status = status; this.retryAfter=retryAfter; }
 }
 export interface Screenshot { path: string; viewport: string; width: number; height: number; type: 'hero' | 'full' | 'feature' }
 export interface CapturedPage { url: string; title: string; screenshots: Screenshot[] }
@@ -48,7 +49,10 @@ export function publicScout(record: ScoutRecord) {
 }
 export function errorResponse(error: unknown, fallback = 'This request could not be completed. Please try again.') {
     return Response.json({ error: error instanceof ScoutError ? error.message : fallback }, {
-        status: error instanceof ScoutError ? error.status : 503, headers: { 'Cache-Control': 'private, no-store' },
+        status: error instanceof ScoutError ? error.status : 503, headers: {
+            'Cache-Control': 'private, no-store',
+            ...(error instanceof ScoutError && error.retryAfter ? {'Retry-After':String(error.retryAfter)} : {}),
+        },
     });
 }
 export async function readInput(request: Request, maxBytes = 8192): Promise<Record<string, unknown>> {

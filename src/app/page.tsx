@@ -44,9 +44,9 @@ export default function LandingPage() {
                             <span style={{ color: "var(--campfire)" }}>AI Copy. One Click.</span>
                         </h1>
                         <p style={{ fontSize: "1.2rem", color: "var(--rope)", maxWidth: "560px", margin: "0 auto 2.5rem", lineHeight: 1.65 }}>
-                            Enter any website URL and MyScouter captures multi-device screenshots,
-                            wraps them in polished mockups, generates marketing copy with GPT‑4o, and
-                            delivers a ready‑to‑ship asset pack.
+                            Capture a public website in desktop, tablet, or mobile layouts,
+                            turn screenshots into polished mockups, and create AI marketing drafts.
+                            Review your saved pack before sharing it.
                         </p>
 
                         {/* Live URL ticker + CTA */}
@@ -99,7 +99,7 @@ export default function LandingPage() {
                             }} />
 
                             {[
-                                { num: "1", icon: <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>, title: "Paste a URL", desc: "Drop in any website address. MyScouter handles the rest." },
+                                { num: "1", icon: <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>, title: "Paste a URL", desc: "Use a public website you own or have permission to capture." },
                                 { num: "2", icon: <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>, title: "Capture & Enhance", desc: "Puppeteer captures every viewport. Sharp enhances every pixel." },
                                 { num: "3", icon: <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>, title: "Download Pack", desc: "Get mockups, screenshots, AI copy, and a ZIP bundle — instantly." },
                             ].map((step) => (
@@ -172,7 +172,7 @@ export default function LandingPage() {
                                 </div>
                                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem", color: "var(--forest-deep)", marginBottom: "0.5rem" }}>AI-Powered Copy</h3>
                                 <p style={{ color: "var(--rope)", fontSize: "0.95rem", lineHeight: 1.6, flex: 1 }}>
-                                    GPT‑4o reads your site content directly from the DOM and writes a high-converting elevator pitch, exact feature blurbs, an engaging launch tweet, and a catchy tagline perfectly tailored for you.
+                                    AI uses the captured website text to draft a pitch, feature blurbs, a social post, and a tagline. Review every claim before publishing. Your images remain available if a draft cannot be generated.
                                     <br /><br />
                                     Never stare at a blank page again when preparing for your upcoming product launch or update.
                                 </p>
@@ -265,7 +265,7 @@ export default function LandingPage() {
                         {[
                             { value: "20+", label: "Cookie Selectors" },
                             { value: "3", label: "Device Viewports" },
-                            { value: "GPT‑4o", label: "AI Engine" },
+                            { value: "AI Drafts", label: "Review before publishing" },
                             { value: "< 60s", label: "Per Scout" },
                         ].map((stat) => (
                             <div key={stat.label}>

@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { db } from "@/lib/firebase";
-import { collection, query, getDocs, where } from "firebase/firestore";
+import { authFetch, jsonResult } from '@/lib/auth-fetch';
 import { useAuth } from "@/lib/auth-context";
 import { Navbar } from "@/components/navbar";
 
@@ -21,55 +20,24 @@ interface ScoutEntry {
 
 export default function Dashboard() {
     const [scouts, setScouts] = useState<ScoutEntry[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loadError,setLoadError] = useState('');
+    const [loadedFor,setLoadedFor] = useState('');
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
 
     useEffect(() => {
-        if (!authLoading) {
-            if (!user) {
-                router.push("/login");
-            } else {
-                loadScouts();
-            }
-        }
-    }, [user, authLoading]);
+        if(authLoading) return;
+        if(!user){router.push('/login'); return;}
+        const controller=new AbortController();
+        void authFetch(user,'/api/scouts',{signal:controller.signal}).then(jsonResult)
+            .then(result => {if(!controller.signal.aborted){setScouts(result.scouts);setLoadError('');setLoadedFor(user.uid);}})
+            .catch(error => {if(!controller.signal.aborted){setScouts([]);setLoadError(error.message);setLoadedFor(user.uid);}});
+        return () => controller.abort();
+    },[user,authLoading,router]);
 
-    const loadScouts = async () => {
-        if (!user) return;
-        try {
-            const q = query(
-                collection(db, "scouts"),
-                where("userId", "==", user.uid)
-            );
-            const snapshot = await getDocs(q);
-            const entries: ScoutEntry[] = [];
-            snapshot.forEach((doc) => {
-                entries.push(doc.data() as ScoutEntry);
-            });
+    const formatTime = (iso: string) => new Date(iso).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
 
-            // Sort locally to avoid Firebase composite index requirement
-            entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setScouts(entries.slice(0, 20));
-        } catch (err) {
-            console.error("Failed to load scouts:", err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const formatTime = (iso: string) => {
-        const diff = Date.now() - new Date(iso).getTime();
-        const mins = Math.floor(diff / 60000);
-        if (mins < 1) return "Just now";
-        if (mins < 60) return `${mins}m ago`;
-        const hours = Math.floor(mins / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
-        return `${days}d ago`;
-    };
-
-    const isDataLoading = authLoading || loading || !user;
+    const isDataLoading = authLoading || !user || loadedFor !== user.uid;
 
     return (
         <div style={{ padding: "3rem 2rem", maxWidth: "1000px", margin: "0 auto" }}>
@@ -113,8 +81,8 @@ export default function Dashboard() {
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Total Scouts</label>
-                                        <p style={{ fontFamily: "var(--font-display)", fontSize: "2rem", color: "var(--forest-deep)" }}>{scouts.length}</p>
+                                        <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Recent Scouts (up to 20)</label>
+                                        <p style={{ fontFamily: "var(--font-display)", fontSize: "2rem", color: "var(--forest-deep)" }}>{loadError ? '—' : scouts.length}</p>
                                     </div>
                                 </div>
                             </div>
@@ -122,10 +90,10 @@ export default function Dashboard() {
                             {/* Real Scout Log */}
                             <div>
                                 <h2 className="heading-section" style={{ marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: "8px" }}>📋 Scout History</h2>
-                                {scouts.length === 0 ? (
+                                {loadError ? <p role="alert">{loadError} <button onClick={() => window.location.reload()}>Retry</button></p> : scouts.length === 0 ? (
                                     <div className="patch-card" style={{ padding: "3rem 2rem", textAlign: "center" }}>
                                         <p style={{ fontFamily: "var(--font-display)", fontSize: "1.2rem", color: "var(--rope)", marginBottom: "1rem" }}>No scouts yet</p>
-                                        <Link href="/" className="btn-campfire" style={{ textDecoration: "none", display: "inline-block" }}>Send Your First Scout</Link>
+                                        <Link href="/scout" className="btn-campfire" style={{ textDecoration: "none", display: "inline-block" }}>Send Your First Scout</Link>
                                     </div>
                                 ) : (
                                     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -134,17 +102,17 @@ export default function Dashboard() {
                                                 <div>
                                                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "0.35rem" }}>
                                                         <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.15rem", color: "var(--forest-deep)" }}>{scout.domain}</h3>
-                                                        <span className="merit-badge" style={{ fontSize: "0.65rem" }}>✓ {scout.status}</span>
+                                                        <span className="merit-badge" style={{ fontSize: "0.65rem" }}>{scout.status}</span>
                                                     </div>
                                                     <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>
-                                                        Scouted {formatTime(scout.createdAt)} · {scout.devices?.join(", ") || "Desktop"} · {scout.pages?.length || 1} page{(scout.pages?.length || 1) !== 1 ? "s" : ""}
+                                                        Scouted {formatTime(scout.createdAt)} · {scout.devices?.join(", ") || "Desktop"} · {scout.pages?.length || 0} page{scout.pages?.length !== 1 ? "s" : ""}
                                                     </p>
                                                 </div>
                                                 <div style={{ display: "flex", gap: "0.75rem" }}>
                                                     <Link href={`/preview/${scout.id}`} className="btn-scout" style={{ padding: "8px 16px", fontSize: "0.8rem", textDecoration: "none" }}>
                                                         View Pack
                                                     </Link>
-                                                    <Link href={`/?url=${encodeURIComponent(scout.url)}`} className="btn-outline" style={{ padding: "8px 16px", fontSize: "0.8rem", textDecoration: "none" }}>
+                                                    <Link href={`/scout?url=${encodeURIComponent(scout.url)}`} className="btn-outline" style={{ padding: "8px 16px", fontSize: "0.8rem", textDecoration: "none" }}>
                                                         Re-Scout
                                                     </Link>
                                                 </div>

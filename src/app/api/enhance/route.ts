@@ -1,34 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { emitProgress } from "@/lib/progress";
-import { adminStorage } from "@/lib/firebase-admin";
+import { readAsset, requireScout, requireUser, saveAsset } from '@/lib/scout-server';
+import { errorResponse, readInput, ScoutError } from '@/lib/scout-access';
+export const maxDuration = 120;
 
-interface EnhanceRequest {
-    scoutId: string;
-    brandColor: string;
-    pages: {
-        url: string;
-        title: string;
-        screenshots: {
-            path: string;
-            viewport: string;
-            width: number;
-            height: number;
-            type: "hero" | "full" | "feature";
-        }[];
-    }[];
-}
 
 export async function POST(req: NextRequest) {
     try {
-        const body: EnhanceRequest = await req.json();
-        const { scoutId, brandColor, pages } = body;
+        await requireUser(req);
+        const input = await readInput(req);
+        const {ref, record} = await requireScout(req, input.scoutId);
+        if (!['captured', 'complete'].includes(record.status)) throw new ScoutError(409, 'Wait for this capture to finish.');
+        const {id: scoutId, brandColor, pages} = record;
+        if (record.enhancedAssets.length) return NextResponse.json({success:true, assets:record.enhancedAssets, scoutId}, {headers:{'Cache-Control':'private, no-store'}});
 
         const enhancedAssets: { path: string, type: string }[] = [];
         let step = 0;
         const totalSteps = pages.flatMap((p) => p.screenshots.filter((s) => s.type === "hero")).length * 2 + 4;
 
-        emitProgress(scoutId, "enhance", "Enhancing screenshots...", 72);
+        await emitProgress(scoutId, "enhance", "Enhancing screenshots...", 72);
 
         // Process each page's screenshots
         for (const page of pages) {
@@ -37,13 +28,10 @@ export async function POST(req: NextRequest) {
 
                 if (shot.type === "hero") {
                     step++;
-                    emitProgress(scoutId, "enhance", `Enhancing hero ${step}...`, 72 + Math.round((step / totalSteps) * 15));
+                    await emitProgress(scoutId, "enhance", `Enhancing hero ${step}...`, 72 + Math.round((step / totalSteps) * 15));
 
-                    // Download the source image buffer from Firebase Storage URL
-                    const response = await fetch(shot.path);
-                    if (!response.ok) continue;
-                    const arrayBuffer = await response.arrayBuffer();
-                    const inputBuffer = Buffer.from(arrayBuffer);
+                    // Read only an asset listed in this owner's saved capture.
+                    const inputBuffer = await readAsset(record, shot.path);
                     const basename = `hero-${step}`;
 
                     const enhanced = await enhanceHero(inputBuffer, brandColor, scoutId, basename);
@@ -70,7 +58,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Grid collages
-        emitProgress(scoutId, "collage", "Building grid collages...", 88);
+        await emitProgress(scoutId, "collage", "Building grid collages...", 88);
 
         const featureShots = pages
             .flatMap((p) => p.screenshots)
@@ -79,9 +67,7 @@ export async function POST(req: NextRequest) {
 
         const featureBuffers = await Promise.all(
             featureShots.map(async (s) => {
-                const res = await fetch(s.path);
-                if (res.ok) return Buffer.from(await res.arrayBuffer());
-                return null;
+                return readAsset(record, s.path);
             })
         );
         const validFeatureBuffers = featureBuffers.filter((b) => b !== null).map((b) => b as Buffer);
@@ -94,9 +80,7 @@ export async function POST(req: NextRequest) {
         const allShots = pages.flatMap((p) => p.screenshots).slice(0, 6);
         const allBuffers = await Promise.all(
             allShots.map(async (s) => {
-                const res = await fetch(s.path);
-                if (res.ok) return Buffer.from(await res.arrayBuffer());
-                return null;
+                return readAsset(record, s.path);
             })
         );
         const validAllBuffers = allBuffers.filter((b) => b !== null).map((b) => b as Buffer);
@@ -107,13 +91,12 @@ export async function POST(req: NextRequest) {
         }
 
         // Social images
-        emitProgress(scoutId, "social", "Generating social assets...", 92);
+        await emitProgress(scoutId, "social", "Generating social assets...", 92);
 
         const heroShot = pages[0]?.screenshots.find((s) => s.type === "hero" && s.viewport === "desktop");
         if (heroShot && heroShot.path) {
-            const res = await fetch(heroShot.path);
-            if (res.ok) {
-                const heroBuffer = Buffer.from(await res.arrayBuffer());
+            {
+                const heroBuffer = await readAsset(record, heroShot.path);
                 const twitter = await createSocialImage(heroBuffer, 1200, 675, scoutId, "twitter");
                 const linkedin = await createSocialImage(heroBuffer, 1200, 627, scoutId, "linkedin");
                 const dribbble = await createSocialImage(heroBuffer, 1600, 1200, scoutId, "dribbble");
@@ -127,36 +110,23 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        emitProgress(scoutId, "done", "All assets ready!", 100);
+        await ref.update({enhancedAssets: enhancedAssets.map(asset => asset.path), status: 'complete'});
+        await emitProgress(scoutId, "done", "All assets ready!", 100);
 
         return NextResponse.json({
             success: true,
-            assets: enhancedAssets.map(a => a.path), // Just return the URLs array for backwards compatibility
-            assetsMeta: enhancedAssets, // Keep metadata if needed
+            assets: enhancedAssets.map(a => a.path),
+            assetsMeta: enhancedAssets,
             scoutId,
-        });
+        }, {headers:{'Cache-Control':'private, no-store'}});
     } catch (error) {
-        console.error("Enhance error:", error);
-        return NextResponse.json(
-            { error: error instanceof Error ? error.message : "Enhancement failed" },
-            { status: 500 }
-        );
+        return errorResponse(error, 'Enhancement could not finish. Your captured images remain in your history.');
     }
 }
 
 // ==================== Enhancement Functions ====================
 
-async function uploadToStorage(buffer: Buffer, scoutId: string, filename: string): Promise<string> {
-    const file = adminStorage.file(`scouts/${scoutId}/${filename}`);
-    await file.save(buffer, {
-        metadata: { contentType: "image/png" },
-        public: true, // Make file publicly readable
-    });
-
-    // Get public URL
-    const publicUrl = `https://storage.googleapis.com/${adminStorage.name}/${file.name}`;
-    return publicUrl;
-}
+const uploadToStorage = saveAsset;
 
 async function enhanceHero(inputBuffer: Buffer, brandColor: string, scoutId: string, basename: string): Promise<string> {
     const image = sharp(inputBuffer);

@@ -4,9 +4,12 @@ import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
 import chromium from "@sparticuz/chromium-min";
 import sharp from "sharp";
 import { emitProgress } from "@/lib/progress";
-import { db } from "@/lib/firebase";
-import { doc, setDoc } from "firebase/firestore";
-import { adminStorage } from "@/lib/firebase-admin";
+import { randomUUID } from 'node:crypto';
+import { getAdmin } from '@/lib/firebase-admin';
+import { requireUser, saveAsset, SCOUT_COLLECTION } from '@/lib/scout-server';
+import { errorResponse, publicScout, readInput, ScoutError, type ScoutRecord } from '@/lib/scout-access';
+import { publicUrl, resolvePublic } from '@/lib/public-network';
+import { captureBrowserArgs, startCaptureProxy } from '@/lib/capture-proxy';
 
 // Viewport configs
 const VIEWPORTS = {
@@ -40,13 +43,6 @@ const COOKIE_SELECTORS = [
     'button:has-text("OK")',
 ];
 
-interface ScoutRequest {
-    url: string;
-    brandColor?: string;
-    devices?: string[];
-    autoDetectColor?: boolean;
-    userId?: string;
-}
 
 interface Screenshot {
     path: string;
@@ -66,67 +62,96 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
     let browser: Browser | null = null;
-    const scoutId = `scout-${Date.now()}`;
+    let proxy: Awaited<ReturnType<typeof startCaptureProxy>> | null = null;
+    const scoutId = `scout-${randomUUID()}`;
+    let recordCreated = false;
+    let expired = false;
+    const deadline = setTimeout(() => {
+        expired = true;
+        void browser?.close().catch(() => {});
+        void proxy?.close();
+    }, 240000);
+    deadline.unref();
+    const checkDeadline = () => {
+        if (expired) throw new ScoutError(422, 'This website took too long to capture. Try a smaller page.');
+        proxy?.assertWithinBudget();
+    };
 
     try {
-        const body: ScoutRequest = await req.json();
-        const { url, brandColor = "#2D4A22", devices = ["desktop"], autoDetectColor = false, userId = "anonymous" } = body;
+        const userId = await requireUser(req);
+        const body = await readInput(req);
+        const { url, brandColor = '#2D4A22', devices = ['desktop'], autoDetectColor = false } = body;
+        if (typeof url !== 'string' || url.length > 2048 || typeof brandColor !== 'string' || !/^#[a-f0-9]{6}$/i.test(brandColor) ||
+            !Array.isArray(devices) || !devices.length || devices.length > 3 || new Set(devices).size !== devices.length || devices.some(device => !['desktop','tablet','mobile'].includes(device)) || typeof autoDetectColor !== 'boolean') {
+            throw new ScoutError(400, 'Choose a valid website, color and at least one device.');
+        }
 
         if (!url) {
             return NextResponse.json({ error: "URL is required" }, { status: 400 });
         }
 
-        // Validate URL
-        let parsedUrl: URL;
-        try {
-            parsedUrl = new URL(url);
-            if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-                throw new Error("Invalid protocol");
-            }
-        } catch {
-            return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
-        }
+        const parsedUrl = publicUrl(url);
+        await resolvePublic(parsedUrl);
 
-        emitProgress(scoutId, "init", "Preparing scout...", 5);
+        await getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId).create({
+            id: scoutId, userId, url, domain: parsedUrl.hostname, brandColor, devices,
+            status: 'capturing', pages: [], enhancedAssets: [], copy: null, textContent: '', createdAt: new Date().toISOString(),
+        });
+        recordCreated = true;
+        await emitProgress(scoutId, "init", "Preparing scout...", 5);
 
-        emitProgress(scoutId, "browser", "Launching scout browser...", 10);
+        await emitProgress(scoutId, "browser", "Launching scout browser...", 10);
 
         // Launch browser
+        proxy = await startCaptureProxy();
         if (process.env.NODE_ENV === "production") {
             const executablePath = await chromium.executablePath(
-                "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
+                "https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar"
             );
             browser = await puppeteerCore.launch({
-                args: [...chromium.args, "--disable-web-security", "--font-render-hinting=none"],
-                // @ts-ignore
-                defaultViewport: chromium.defaultViewport as any,
+                args: captureBrowserArgs(proxy.url, chromium.args),
+                defaultViewport: VIEWPORTS.desktop,
                 executablePath,
-                // @ts-ignore
-                headless: chromium.headless as any,
+                headless: 'shell',
+                pipe: true,
             });
         } else {
             browser = await puppeteerDev.launch({
                 headless: true,
-                args: [
+                pipe: true,
+                args: captureBrowserArgs(proxy.url, [
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
-                ],
+                ]),
             });
         }
 
+        checkDeadline();
         const page = await browser.newPage() as unknown as Page;
         page.setDefaultNavigationTimeout(30000);
         page.setDefaultTimeout(15000);
+        await page.setBypassServiceWorker(true);
+        await page.setRequestInterception(true);
+        page.on('request', request => {
+            if (request.isInterceptResolutionHandled()) return;
+            try {
+                const target = request.url();
+                if (!['GET','HEAD'].includes(request.method())) throw new Error('Read-only capture');
+                if (!target.startsWith('data:') && !target.startsWith('blob:')) publicUrl(target);
+                void request.continue().catch(() => {});
+            } catch {void request.abort('blockedbyclient').catch(() => {});}
+        });
 
-        emitProgress(scoutId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
+        await emitProgress(scoutId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
 
         // Navigate to the target URL
-        await page.goto(url, { waitUntil: "networkidle2" });
+        const navigation = await page.goto(parsedUrl.href, { waitUntil: "networkidle2" });
+        if (!navigation?.ok()) throw new ScoutError(422, 'This website could not be read. Try another public page.');
 
         // Dismiss cookie banners
-        emitProgress(scoutId, "cookies", "Dismissing cookie banners...", 20);
+        await emitProgress(scoutId, "cookies", "Dismissing cookie banners...", 20);
         await dismissCookieBanners(page);
 
         // Wait for page to settle after cookie dismissal and styles/fonts to load
@@ -134,7 +159,7 @@ export async function POST(req: NextRequest) {
         await page.evaluate(() => new Promise((r) => setTimeout(r, 2000)));
 
         // Extract text content for copy generation
-        emitProgress(scoutId, "text", "Reading site content...", 25);
+        await emitProgress(scoutId, "text", "Reading site content...", 25);
         const textContent = await page.evaluate(() => {
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
             const texts: string[] = [];
@@ -153,12 +178,12 @@ export async function POST(req: NextRequest) {
         // Auto-detect brand color from screenshot
         let detectedColor = brandColor;
         if (autoDetectColor) {
-            emitProgress(scoutId, "color", "Detecting brand color...", 28);
+            await emitProgress(scoutId, "color", "Detecting brand color...", 28);
             detectedColor = await detectBrandColor(page, brandColor);
         }
 
         // Discover navigation links (1 level deep)
-        emitProgress(scoutId, "links", "Discovering pages...", 30);
+        await emitProgress(scoutId, "links", "Discovering pages...", 30);
         const navLinks = await page.evaluate((baseUrl: string) => {
             const links: string[] = [];
             const anchors = document.querySelectorAll("nav a, header a, [role='navigation'] a");
@@ -188,7 +213,7 @@ export async function POST(req: NextRequest) {
         }, url);
 
         // Capture homepage screenshots
-        emitProgress(scoutId, "capture", "Capturing homepage...", 35);
+        await emitProgress(scoutId, "capture", "Capturing homepage...", 35);
         const allPages: PageCapture[] = [];
         const homepageCapture = await capturePageScreenshots(page, url, pageTitle, devices, scoutId, "home");
         allPages.push(homepageCapture);
@@ -196,10 +221,12 @@ export async function POST(req: NextRequest) {
         // Scout interior pages
         const totalPages = Math.min(navLinks.length, 5);
         for (let i = 0; i < totalPages; i++) {
+            checkDeadline();
             const pct = 40 + Math.round((i / totalPages) * 25);
-            emitProgress(scoutId, "capture", `Scouting page ${i + 2} of ${totalPages + 1}...`, pct);
+            await emitProgress(scoutId, "capture", `Scouting page ${i + 2} of ${totalPages + 1}...`, pct);
             try {
-                await page.goto(navLinks[i], { waitUntil: "networkidle2" });
+                const response = await page.goto(publicUrl(navLinks[i]).href, { waitUntil: "networkidle2" });
+                if (!response?.ok()) continue;
                 await dismissCookieBanners(page);
                 await page.evaluateHandle('document.fonts.ready');
                 await page.evaluate(() => new Promise((r) => setTimeout(r, 2000)));
@@ -209,14 +236,15 @@ export async function POST(req: NextRequest) {
                 );
                 allPages.push(interiorCapture);
             } catch {
-                console.log(`Skipped: ${navLinks[i]}`);
+                // One unavailable interior page does not discard a valid homepage.
             }
         }
 
-        emitProgress(scoutId, "saving", "Saving scout results...", 68);
+        checkDeadline();
+        await emitProgress(scoutId, "saving", "Saving scout results...", 68);
 
         // Save to Firestore
-        const scoutRecord = {
+        const scoutRecord: ScoutRecord = {
             id: scoutId,
             userId,
             url,
@@ -227,42 +255,31 @@ export async function POST(req: NextRequest) {
                 title: p.title,
                 screenshotCount: p.screenshots.length,
                 viewports: [...new Set(p.screenshots.map((s) => s.viewport))],
-                screenshots: p.screenshots // Save the actual screenshot URLs too
+                screenshots: p.screenshots
             })),
             textContent,
-            status: "complete",
+            status: "captured",
+            enhancedAssets: [],
+            copy: null,
             createdAt: new Date().toISOString(),
             devices,
         };
 
-        try {
-            await setDoc(doc(db, "scouts", scoutId), scoutRecord);
-        } catch (err) {
-            console.error("Firestore save error:", err);
-            // Non-fatal — continue even if Firestore save fails
-        }
-
-        emitProgress(scoutId, "complete", "Scout complete! Enhancing assets...", 70);
-
-        return NextResponse.json({
-            id: scoutId,
-            url,
-            domain: parsedUrl.hostname,
-            brandColor: detectedColor,
-            pages: allPages,
-            textContent,
-        });
+        await getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId).set(scoutRecord, {merge:true});
+        await emitProgress(scoutId, 'complete', 'Capture saved. Preparing assets...', 70);
+        return NextResponse.json(publicScout(scoutRecord), {headers:{'Cache-Control':'private, no-store'}});
     } catch (error) {
-        console.error("Scout error:", error);
-        emitProgress(scoutId, "error", error instanceof Error ? error.message : "Scout failed", -1);
-        return NextResponse.json(
-            { error: error instanceof Error ? error.message : "Scout failed" },
-            { status: 500 }
-        );
-    } finally {
-        if (browser) {
-            await browser.close();
+        if (recordCreated) {
+            await getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId).update({status:'failed'}).catch(() => {});
+            await emitProgress(scoutId, 'error', 'The capture could not finish. Please try again.', -1).catch(() => {});
         }
+        return errorResponse(error, 'The website could not be captured. Check its address and try again.');
+    } finally {
+        clearTimeout(deadline);
+        if (browser) {
+            await browser.close().catch(() => {});
+        }
+        await proxy?.close();
     }
 }
 
@@ -329,17 +346,7 @@ async function detectBrandColor(page: Page, fallback: string): Promise<string> {
 
 // ==================== Screenshot Capture ====================
 
-async function uploadToStorage(buffer: Buffer, scoutId: string, filename: string): Promise<string> {
-    const file = adminStorage.file(`scouts/${scoutId}/${filename}`);
-    await file.save(buffer, {
-        metadata: { contentType: "image/png" },
-        public: true, // Make file publicly readable
-    });
-
-    // Get public URL
-    const publicUrl = `https://storage.googleapis.com/${adminStorage.name}/${file.name}`;
-    return publicUrl;
-}
+const uploadToStorage = saveAsset;
 
 async function capturePageScreenshots(
     page: Page,
@@ -350,7 +357,6 @@ async function capturePageScreenshots(
     prefix: string
 ): Promise<PageCapture> {
     const screenshots: Screenshot[] = [];
-    const uploadPromises: Promise<void>[] = [];
 
     for (const device of devices) {
         const viewport = VIEWPORTS[device as keyof typeof VIEWPORTS];
@@ -362,19 +368,18 @@ async function capturePageScreenshots(
         // Hero screenshot
         const heroName = `${prefix}-${device}-hero.png`;
         const heroBuffer = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: viewport.width, height: viewport.height } });
-        uploadPromises.push(uploadToStorage(heroBuffer as Buffer, scoutId, heroName).then(url => {
-            screenshots.push({ path: url, viewport: device, width: viewport.width, height: viewport.height, type: "hero" });
-        }));
+        const heroPath = await uploadToStorage(heroBuffer as Buffer, scoutId, heroName);
+        screenshots.push({ path: heroPath, viewport: device, width: viewport.width, height: viewport.height, type: "hero" });
 
-        // Full page screenshot
+        // Bound very long pages before image allocation, not only after encoding.
+        const pageHeight = await page.evaluate(() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));
+        const captureHeight = Math.min(12000, Math.max(viewport.height, pageHeight));
         const fullName = `${prefix}-${device}-full.png`;
-        const fullBuffer = await page.screenshot({ type: "png", fullPage: true });
-        uploadPromises.push(uploadToStorage(fullBuffer as Buffer, scoutId, fullName).then(url => {
-            screenshots.push({ path: url, viewport: device, width: viewport.width, height: 0, type: "full" });
-        }));
+        const fullBuffer = await page.screenshot({ type: "png", clip:{x:0,y:0,width:viewport.width,height:captureHeight}, captureBeyondViewport:true });
+        const fullPath = await uploadToStorage(fullBuffer as Buffer, scoutId, fullName);
+        screenshots.push({ path: fullPath, viewport: device, width: viewport.width, height: captureHeight, type: "full" });
 
         // Feature screenshots (3 sections)
-        const pageHeight = await page.evaluate(() => document.body.scrollHeight);
         const sectionHeight = viewport.height;
         const sections = Math.min(3, Math.floor(pageHeight / sectionHeight));
 
@@ -382,12 +387,10 @@ async function capturePageScreenshots(
             const yOffset = Math.min(sectionHeight * s, pageHeight - viewport.height);
             const featureName = `${prefix}-${device}-feature-${s}.png`;
             const featureBuffer = await page.screenshot({ type: "png", clip: { x: 0, y: yOffset, width: viewport.width, height: viewport.height } });
-            uploadPromises.push(uploadToStorage(featureBuffer as Buffer, scoutId, featureName).then(url => {
-                screenshots.push({ path: url, viewport: device, width: viewport.width, height: viewport.height, type: "feature" });
-            }));
+            const featurePath = await uploadToStorage(featureBuffer as Buffer, scoutId, featureName);
+            screenshots.push({ path: featurePath, viewport: device, width: viewport.width, height: viewport.height, type: "feature" });
         }
     }
 
-    await Promise.all(uploadPromises);
     return { url: pageUrl, title, screenshots };
 }

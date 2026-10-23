@@ -1,28 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { buildBundle, validateAssets } from '@/lib/bundle';
+import { buildBundle } from '@/lib/bundle';
+import { readAsset, requireScout, requireUser } from '@/lib/scout-server';
+import { errorResponse, readInput, recordedAssets } from '@/lib/scout-access';
+import { privateBinary } from '@/lib/private-binary';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
-export async function POST(req: NextRequest) {
-    let scoutId: string;
-    let urls: string[];
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-    if (!bucket) return NextResponse.json({ error: 'Downloads are temporarily unavailable. Please try again later.' }, { status: 503 });
+export async function POST(request: Request) {
     try {
-        const input = await req.json();
-        urls = validateAssets(input.scoutId, input.assets, bucket);
-        scoutId = input.scoutId;
-    } catch {
-        return NextResponse.json({ error: 'This asset pack is invalid. Reload the scout and try again.' }, { status: 400 });
-    }
-    try {
-        const zip = await buildBundle(urls);
-        return new NextResponse(new Uint8Array(zip), { headers: {
+        await requireUser(request);
+        const { scoutId } = await readInput(request);
+        const { record } = await requireScout(request, scoutId);
+        const zip = await buildBundle(recordedAssets(record), (name, signal) => readAsset(record, name, signal));
+        return privateBinary(zip, {
             'Content-Type': 'application/zip',
-            'Content-Disposition': `attachment; filename="myscouter-${scoutId}.zip"`,
-            'Content-Length': String(zip.length),
-            'Cache-Control': 'no-store',
-        } });
-    } catch {
-        return NextResponse.json({ error: 'We could not pack every asset. Please retry the download.' }, { status: 502 });
-    }
+            'Content-Disposition': 'attachment; filename="myscouter-' + record.id + '.zip"',
+        });
+    } catch (error) { return errorResponse(error, 'We could not pack every asset. Please retry the download.'); }
 }

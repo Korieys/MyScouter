@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { authFetch, jsonResult } from '@/lib/auth-fetch';
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 
@@ -26,20 +29,20 @@ const STEPS = [
 ];
 
 export default function Home() {
-  const [url, setUrl] = useState("");
+  return <Suspense fallback={<p>Loading scout form…</p>}><ScoutForm /></Suspense>;
+}
+
+function ScoutForm() {
+  const searchParams = useSearchParams();
+  const [url, setUrl] = useState(() => (searchParams.get('url') || '').slice(0, 2048));
   const [color, setColor] = useState("#2D4A22");
   const [devices, setDevices] = useState({ desktop: true, tablet: false, mobile: false });
   const [isScouting, setIsScouting] = useState(false);
   const [autoColor, setAutoColor] = useState(false);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [error, setError] = useState("");
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const {user, loading:authLoading} = useAuth();
 
-  useEffect(() => {
-    return () => {
-      eventSourceRef.current?.close();
-    };
-  }, []);
 
   const handleDeviceChange = (device: keyof typeof devices) => {
     setDevices((prev) => ({ ...prev, [device]: !prev[device] }));
@@ -55,109 +58,28 @@ export default function Home() {
 
     setIsScouting(true);
     setError("");
-    setProgress({ step: "init", detail: "Starting scout...", progress: 0 });
+    setProgress({ step: "capture", detail: "Capturing your website. This can take up to four minutes; keep this page open.", progress: 15 });
 
     try {
-      // Step 1: Scout
-      const selectedDevices = Object.entries(devices).filter(([, v]) => v).map(([k]) => k);
-
-      const scoutRes = await fetch("/api/scout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: formattedUrl,
-          brandColor: color,
-          devices: selectedDevices.length ? selectedDevices : ["desktop"],
-          autoDetectColor: autoColor,
-        }),
-      });
-
-      if (!scoutRes.ok) {
-        const err = await scoutRes.json();
-        throw new Error(err.error || "Scout failed");
-      }
-
-      const scoutData = await scoutRes.json();
-
-      // Connect to SSE for enhance progress
-      const es = new EventSource(`/api/scout/progress?jobId=${scoutData.id}`);
-      eventSourceRef.current = es;
-      es.onmessage = (e) => {
-        try {
-          const event: ProgressEvent = JSON.parse(e.data);
-          setProgress(event);
-        } catch { /* ignore */ }
-      };
-
-      // Step 2: Enhance
-      setProgress({ step: "enhance", detail: "Enhancing screenshots...", progress: 72 });
-
-      const enhanceRes = await fetch("/api/enhance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scoutId: scoutData.id,
-          brandColor: scoutData.brandColor,
-          pages: scoutData.pages,
-        }),
-      });
-
-      if (!enhanceRes.ok) {
-        const err = await enhanceRes.json();
-        throw new Error(err.error || "Enhancement failed");
-      }
-
-      const enhanceData = await enhanceRes.json();
-
-      // Step 3: AI Copy
-      setProgress({ step: "copy", detail: "Writing marketing copy...", progress: 95 });
-
-      let copyData = null;
+      const selectedDevices = Object.entries(devices).filter(([,v]) => v).map(([key]) => key);
+      const scoutData = await jsonResult(await authFetch(user, '/api/scout', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:formattedUrl, brandColor:color, devices:selectedDevices.length ? selectedDevices : ['desktop'], autoDetectColor:autoColor}),
+      }));
+      setProgress({step:'enhance',detail:'Capture saved. Creating mockups...',progress:72});
+      // Each stage persists its result. If optional work fails, the captured pack can still reopen.
       try {
-        const copyRes = await fetch("/api/copy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            textContent: scoutData.textContent,
-            domain: scoutData.domain,
-            pageTitle: scoutData.pages[0]?.title || "",
-          }),
-        });
-        if (copyRes.ok) {
-          copyData = await copyRes.json();
-        }
-      } catch {
-        // Non-fatal — copy generation is optional
-      }
-
-      // Store results
-      const result = {
-        ...scoutData,
-        enhancedAssets: enhanceData.assets,
-        copy: copyData,
-        scoutId: scoutData.id,
-      };
-      localStorage.setItem("myscouter-latest", JSON.stringify(result));
-      localStorage.setItem(`myscouter-${scoutData.id}`, JSON.stringify(result));
-
-      setProgress({ step: "done", detail: "Scout complete!", progress: 100 });
-
-      es.close();
-      eventSourceRef.current = null;
-
-      // Navigate after a brief moment to see "Done!"
-      setTimeout(() => {
-        window.location.href = `/preview/${scoutData.id}`;
-      }, 800);
-
+        await jsonResult(await authFetch(user,'/api/enhance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scoutId:scoutData.id})}));
+      } catch { /* The preview exposes a retry for unfinished enhancements. */ }
+      setProgress({step:'copy',detail:'Writing a draft from the captured website...',progress:95});
+      try {
+        await jsonResult(await authFetch(user,'/api/copy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scoutId:scoutData.id})}));
+      } catch { /* Copy is optional; the preview states when it is missing. */ }
+      window.location.href = '/preview/' + scoutData.id;
     } catch (err) {
-      console.error("Scout pipeline error:", err);
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : 'The capture could not finish. Please try again.');
       setProgress(null);
-      eventSourceRef.current?.close();
-    } finally {
-      setIsScouting(false);
-    }
+    } finally {setIsScouting(false);}
   };
 
   const currentStepIndex = STEPS.findIndex((s) => s.key === progress?.step);
@@ -175,7 +97,7 @@ export default function Home() {
             New Scout
           </h2>
           <p style={{ fontSize: "1.05rem", color: "var(--rope)" }}>
-            Enter a target URL below to dispatch a scout.
+            Capture a public website you own or have permission to use. Long pages are limited to the first 12,000 pixels.
           </p>
         </div>
 
@@ -185,8 +107,8 @@ export default function Home() {
 
           <form onSubmit={handleScout} style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
             <div>
-              <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Target Coordinates</label>
-              <input type="text" placeholder="tailoroutreach.com" required className="input-scout" value={url} onChange={(e) => setUrl(e.target.value)} disabled={isScouting} />
+              <label htmlFor="scout-url" className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Website URL</label>
+              <input id="scout-url" type="text" placeholder="example.com" required className="input-scout" value={url} onChange={(e) => setUrl(e.target.value)} disabled={isScouting} />
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
@@ -260,10 +182,12 @@ export default function Home() {
               </div>
             )}
 
-            <button type="submit" className="btn-campfire" style={{ width: "100%", padding: "16px", fontSize: "1rem" }} disabled={isScouting}>
+            <button type="submit" className="btn-campfire" style={{ width: "100%", padding: "16px", fontSize: "1rem" }} disabled={isScouting || authLoading || !user}>
               {isScouting ? (progress?.detail || "Scout is on the trail...") : "Send Scout"}
             </button>
 
+            {!authLoading && !user && <p><Link href="/login?next=/scout">Sign in to create and save your asset pack.</Link></p>}
+            <p style={{fontSize:'0.85rem',color:'var(--rope)'}}>Your captures are saved privately to your account in Google Cloud. Readable website text is sent to OpenAI to prepare draft copy. Review the images and text before publishing.</p>
             {error && (
               <p style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--ember)" }}>
                 {error}

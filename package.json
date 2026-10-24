@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:readiness": "tsx --test src/lib/*.test.mjs",
-    "test:database": "tsx --test tests/database/*.test.mjs"
+    "test:database": "tsx --test tests/database/*.test.mjs",
+    "test:ui": "tsx --test tests/ui/*.test.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
@@ -29,12 +30,14 @@
     "sharp": "0.35.5"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^20",
     "@types/puppeteer-core": "^5.4.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jsdom": "^29.1.1",
     "tsx": "^4.23.15",
     "typescript": "^5"
   }

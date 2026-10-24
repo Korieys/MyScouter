@@ -7,6 +7,7 @@ import {initializeApp as clientApp,deleteApp as deleteClientApp} from 'firebase/
 import {getFirestore as clientFirestore,connectFirestoreEmulator,doc,getDoc,setDoc,terminate} from 'firebase/firestore';
 import {workStore,LIMIT_COLLECTION,attemptAsset} from '../../src/lib/work-store.ts';
 import {WORK_LIMITS} from '../../src/lib/work-policy.ts';
+import {readScoutHistory} from '../../src/lib/scout-history.ts';
 
 const projectId='demo-myscouter-readiness';
 if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8187')throw Error('These tests require the disposable local demo emulator on 8187.');
@@ -116,4 +117,51 @@ test('current rules deny all client reads and writes of private packs and usage 
   } finally {await terminate(client);await deleteClientApp(app);}
  }
  await workStore(db).release(reserved.lease);
+});
+
+async function historyFixtures(uid,count) {
+ const records=Array.from({length:count},(_,index)=>{
+  const id='scout-'+randomUUID();
+  return {...owned(uid,id),createdAt:new Date(Date.UTC(2026,9,23,0,0,Math.floor(index/25))).toISOString(),pages:[{url:'https://example.com',title:'Fictional capture',screenshots:[{path:'private.png'}]}]};
+ });
+ const batch=db.batch();for(const record of records)batch.set(db.collection('privateScouts').doc(record.id),record);await batch.commit();
+ return records.sort((a,b)=>a.createdAt>b.createdAt?-1:a.createdAt<b.createdAt?1:a.id>b.id?-1:a.id<b.id?1:0);
+}
+
+test('history paginates beyond 20 with tied timestamps, no gaps or duplicates and only owner metadata',async()=>{
+ const uid=randomUUID(),other=randomUUID(),expected=await historyFixtures(uid,45);
+ await historyFixtures(other,12);
+ let cursor=null;const all=[],sizes=[];
+ do {
+  const page=await readScoutHistory(db,uid,cursor);sizes.push(page.scouts.length);all.push(...page.scouts);cursor=page.nextCursor;
+ }while(cursor);
+ assert.deepEqual(sizes,[20,20,5]);
+ assert.deepEqual(all.map(s=>s.id),expected.map(s=>s.id));
+ for(const row of all){assert.deepEqual(Object.keys(row).sort(),['createdAt','devices','domain','id','pages','status','url']);assert.deepEqual(row.pages,[{url:'https://example.com',title:'Fictional capture'}]);}
+});
+
+test('empty history and an exact full last page return no continuation cursor',async()=>{
+ assert.deepEqual(await readScoutHistory(db,randomUUID(),null),{scouts:[],nextCursor:null});
+ const uid=randomUUID();await historyFixtures(uid,20);
+ const page=await readScoutHistory(db,uid,null);assert.equal(page.scouts.length,20);assert.equal(page.nextCursor,null);
+});
+
+test('history position survives a deleted anchor and does not repeat rows when newer scouts arrive',async()=>{
+ const uid=randomUUID(),expected=await historyFixtures(uid,45);
+ const first=await readScoutHistory(db,uid,null);
+ await db.collection('privateScouts').doc(first.scouts.at(-1).id).delete();
+ const inserted=owned(uid,'scout-'+randomUUID());inserted.createdAt='2026-10-24T00:00:00.000Z';await db.collection('privateScouts').doc(inserted.id).set(inserted);
+ const second=await readScoutHistory(db,uid,first.nextCursor);
+ assert.deepEqual(second.scouts.map(s=>s.id),expected.slice(20,40).map(s=>s.id));
+ assert.equal((await readScoutHistory(db,uid,null)).scouts[0].id,inserted.id);
+});
+
+test('history rejects malformed and cross-account cursors; cursor positions cannot change ownership',async()=>{
+ const uid=randomUUID(),other=randomUUID();await historyFixtures(uid,21);await historyFixtures(other,21);
+ const page=await readScoutHistory(db,uid,null);
+ await assert.rejects(readScoutHistory(db,other,page.nextCursor),{status:400});
+ for(const cursor of ['', 'not_json', 'a'.repeat(1025),Buffer.from(JSON.stringify([1,uid,'bad-date','../outside'])).toString('base64url')]) await assert.rejects(readScoutHistory(db,uid,cursor),{status:400});
+ const values=JSON.parse(Buffer.from(page.nextCursor,'base64url'));values[1]=other;
+ const position=await readScoutHistory(db,other,Buffer.from(JSON.stringify(values)).toString('base64url'));
+ for(const result of position.scouts)assert.equal((await db.collection('privateScouts').doc(result.id).get()).data().userId,other);
 });

@@ -12,7 +12,8 @@
     "lint": "eslint",
     "test:readiness": "tsx --test src/lib/*.test.mjs",
     "test:database": "tsx --test tests/database/*.test.mjs",
-    "test:ui": "tsx --test tests/ui/*.test.mjs"
+    "test:ui": "tsx --test tests/ui/*.test.mjs",
+    "test:browser-network": "tsx --test tests/browser/*.test.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",

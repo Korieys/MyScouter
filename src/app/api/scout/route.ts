@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import puppeteerDev from "puppeteer";
-import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
-import chromium from "@sparticuz/chromium-min";
+import { type Browser, type Page } from "puppeteer-core";
 import sharp from "sharp";
 import { emitProgress } from "@/lib/progress";
 import { randomUUID } from 'node:crypto';
@@ -9,7 +7,8 @@ import { getAdmin } from '@/lib/firebase-admin';
 import { requireUser, saveAsset, SCOUT_COLLECTION } from '@/lib/scout-server';
 import { errorResponse, publicScout, readInput, ScoutError, type ScoutRecord } from '@/lib/scout-access';
 import { publicUrl, resolvePublic } from '@/lib/public-network';
-import { captureBrowserArgs, startCaptureProxy } from '@/lib/capture-proxy';
+import { startCaptureProxy } from '@/lib/capture-proxy';
+import { launchCaptureBrowser, prepareCapturePage } from '@/lib/capture-browser';
 import { workStore } from '@/lib/work-store';
 
 // Viewport configs
@@ -112,45 +111,11 @@ export async function POST(req: NextRequest) {
 
         // Launch browser
         proxy = await startCaptureProxy();
-        if (process.env.NODE_ENV === "production") {
-            const executablePath = await chromium.executablePath(
-                "https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar"
-            );
-            browser = await puppeteerCore.launch({
-                args: captureBrowserArgs(proxy.url, chromium.args),
-                defaultViewport: VIEWPORTS.desktop,
-                executablePath,
-                headless: 'shell',
-                pipe: true,
-            });
-        } else {
-            browser = await puppeteerDev.launch({
-                headless: true,
-                pipe: true,
-                args: captureBrowserArgs(proxy.url, [
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                ]),
-            });
-        }
+        browser = await launchCaptureBrowser(proxy.url, VIEWPORTS.desktop);
 
         checkDeadline();
         const page = await browser.newPage() as unknown as Page;
-        page.setDefaultNavigationTimeout(30000);
-        page.setDefaultTimeout(15000);
-        await page.setBypassServiceWorker(true);
-        await page.setRequestInterception(true);
-        page.on('request', request => {
-            if (request.isInterceptResolutionHandled()) return;
-            try {
-                const target = request.url();
-                if (!['GET','HEAD'].includes(request.method())) throw new Error('Read-only capture');
-                if (!target.startsWith('data:') && !target.startsWith('blob:')) publicUrl(target);
-                void request.continue().catch(() => {});
-            } catch {void request.abort('blockedbyclient').catch(() => {});}
-        });
+        await prepareCapturePage(page);
 
         await emitProgress(scoutId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
 

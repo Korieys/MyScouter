@@ -21,7 +21,7 @@ test('cancelling history stops waiting even when account-token retrieval is stil
  const result=loadScoutHistory({getIdToken:()=>new Promise(resolve=>{finishToken=resolve;})},null,controller.signal);
  controller.abort();await assert.rejects(result,/cancelled/);
  finishToken('late-token');await new Promise(resolve=>setImmediate(resolve));
- assert.deepEqual(calls,[true]);
+ assert.deepEqual(calls,[]);
 });
 
 test('deadline releases a stalled history request with a retryable message',async()=>{

@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useAuth } from '@/lib/auth-context';
 import { authFetch, jsonResult } from '@/lib/auth-fetch';
 import { auth } from '@/lib/firebase';
+import { usePrivateDownload } from '@/lib/use-private-download';
 import { PrivateImage } from '@/components/private-image';
 import { Navbar } from "@/components/navbar";
 
@@ -44,10 +45,10 @@ function getFilename(fullPath: string): string {
 export default function AssetPreview() {
     const params = useParams();
     const [data, setData] = useState<ScoutData | null>(null);
-    const [downloading, setDownloading] = useState(false);
-    const [downloadError, setDownloadError] = useState('');
+    const [stageError, setStageError] = useState('');
     const [compareMode, setCompareMode] = useState(false);
     const {user, loading:authLoading} = useAuth();
+    const {download, downloading, downloadError} = usePrivateDownload(user,String(params.id),() => auth.currentUser?.uid === user?.uid);
     const [loadedFor, setLoadedFor] = useState('');
     const [loadError,setLoadError] = useState('');
     const [working,setWorking] = useState('');
@@ -65,60 +66,13 @@ export default function AssetPreview() {
 
     const retryStage = async (stage:'enhance'|'copy') => {
         if(!data || working) return;
-        setWorking(stage); setDownloadError('');
+        setWorking(stage); setStageError('');
         try {
             await jsonResult(await authFetch(user,'/api/'+stage,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scoutId:data.id})}));
             const result = await jsonResult(await authFetch(user,'/api/scouts/'+encodeURIComponent(data.id)));
             setData(current => current === data ? result : current);
-        } catch(error) {setDownloadError(error instanceof Error ? error.message : 'Please try again.');}
+        } catch(error) {setStageError(error instanceof Error ? error.message : 'Please try again.');}
         finally {setWorking('');}
-    };
-
-    const handleDownload = async () => {
-        if (!data || downloading) return;
-        setDownloading(true);
-        setDownloadError('');
-        try {
-            const res = await authFetch(user, "/api/bundle", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ scoutId: data.id }),
-                signal: AbortSignal.timeout(60000),
-            });
-            if (!res.ok) {
-                const failure = await res.json().catch(() => null);
-                throw new Error(failure?.error || 'Download failed. Please try again.');
-            }
-            const blob = await res.blob();
-            if (auth.currentUser?.uid !== user?.uid) return;
-            if (!blob.size || !blob.type.includes('application/zip')) throw new Error('The download was incomplete. Please try again.');
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `myscouter-${data.id || data.scoutId}.zip`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => window.URL.revokeObjectURL(url), 60000);
-        } catch (err) {
-            setDownloadError(err instanceof Error && err.name !== 'TimeoutError' ? err.message : 'Packing took too long. Please retry the download.');
-        } finally {
-            setDownloading(false);
-        }
-    };
-
-    const downloadIndividual = async (filename:string) => {
-        if(!data) return;
-        setDownloadError('');
-        try {
-            const response = await authFetch(user,'/api/assets/'+encodeURIComponent(data.id)+'/'+encodeURIComponent(filename));
-            if(!response.ok) {await jsonResult(response); return;}
-            const blob=await response.blob();
-            if (auth.currentUser?.uid !== user?.uid) return;
-            const url=URL.createObjectURL(blob);
-            const a=document.createElement('a'); a.href=url; a.download=getFilename(filename); a.click();
-            setTimeout(() => URL.revokeObjectURL(url),60000);
-        } catch(error) {setDownloadError(error instanceof Error ? error.message : 'Download failed.');}
     };
 
     // Categorize assets
@@ -188,15 +142,16 @@ export default function AssetPreview() {
                 </div>
                 <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
                     <span style={{fontSize:"0.85rem",color:"var(--rope)"}}>Private to your account.</span>
-                    <button className="btn-campfire" onClick={handleDownload} disabled={downloading} style={{ display: "flex", alignItems: "center", gap: "6px", height: "fit-content" }}>
+                    <button className="btn-campfire" onClick={() => void download()} disabled={!!downloading} style={{ display: "flex", alignItems: "center", gap: "6px", height: "fit-content" }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
                         </svg>
-                        {downloading ? "Packing..." : "Download (.zip)"}
+                        {downloading === 'zip' ? "Checking download…" : "Download (.zip)"}
                     </button>
                 </div>
             </header>
-            {downloadError && <p role="alert">{downloadError}</p>}
+            {(downloadError || stageError) && <p role="alert">{downloadError || stageError}</p>}
+            {downloading && <p role="status">Preparing and checking your {downloading === 'zip' ? 'ZIP' : 'image'} download…</p>}
             {!data.enhancedAssets?.length && <p>Mockups are not ready. <button className="btn-outline" disabled={!!working} onClick={() => retryStage('enhance')}>{working === 'enhance' ? 'Creating mockups…' : 'Create mockups'}</button></p>}
             {!data.copy && <p>Marketing copy has not been generated. <button className="btn-outline" disabled={!!working} onClick={() => retryStage('copy')}>{working === 'copy' ? 'Writing…' : 'Generate copy'}</button></p>}
             {data.copy && <p>AI draft: check the facts and edit before publishing.</p>}
@@ -292,7 +247,7 @@ export default function AssetPreview() {
                                             <PrivateImage scoutId={data.id} filename={shot.path} alt={`${shot.viewport} hero`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)", textTransform: "capitalize" }}>{shot.viewport} · {shot.width}×{shot.height}</span>
-                                                <button onClick={() => downloadIndividual(shot.path)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                                <button onClick={() => void download(shot.path)} disabled={!!downloading} aria-label={`Save ${getFilename(shot.path)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                             </div>
                                         </div>
                                     ))}
@@ -313,7 +268,7 @@ export default function AssetPreview() {
                                             <PrivateImage scoutId={data.id} filename={shot.path} alt={`Feature ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>Feature {i + 1}</span>
-                                                <button onClick={() => downloadIndividual(shot.path)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                                <button onClick={() => void download(shot.path)} disabled={!!downloading} aria-label={`Save ${getFilename(shot.path)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                             </div>
                                         </div>
                                     ))}
@@ -336,7 +291,7 @@ export default function AssetPreview() {
                                     <PrivateImage scoutId={data.id} filename={asset} alt={`Enhanced ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                        <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                        <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                     </div>
                                 </div>
                             ))}
@@ -356,7 +311,7 @@ export default function AssetPreview() {
                                     <PrivateImage scoutId={data.id} filename={asset} alt={`Mockup ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                        <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                        <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                     </div>
                                 </div>
                             ))}
@@ -376,7 +331,7 @@ export default function AssetPreview() {
                                 <PrivateImage scoutId={data.id} filename={asset} alt={`Collage ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                     <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                    <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                    <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                 </div>
                             </div>
                         ))}
@@ -396,7 +351,7 @@ export default function AssetPreview() {
                                     <PrivateImage scoutId={data.id} filename={asset} alt={`Social ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                        <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                        <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                     </div>
                                 </div>
                             ))}

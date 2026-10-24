@@ -3,21 +3,25 @@ import assert from 'node:assert/strict';
 import {randomUUID,createHash} from 'node:crypto';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
+import {getStorage} from 'firebase-admin/storage';
 import {initializeApp as clientApp,deleteApp as deleteClientApp} from 'firebase/app';
 import {getFirestore as clientFirestore,connectFirestoreEmulator,doc,getDoc,setDoc,terminate} from 'firebase/firestore';
 import {workStore,LIMIT_COLLECTION,attemptAsset} from '../../src/lib/work-store.ts';
 import {WORK_LIMITS} from '../../src/lib/work-policy.ts';
 import {readScoutHistory} from '../../src/lib/scout-history.ts';
+import {removeScout} from '../../src/lib/scout-deletion.ts';
+import {assertOwner} from '../../src/lib/scout-access.ts';
 
 const projectId='demo-myscouter-readiness';
 if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8187')throw Error('These tests require the disposable local demo emulator on 8187.');
-let app,db;
+if(process.env.FIREBASE_STORAGE_EMULATOR_HOST!=='127.0.0.1:9197')throw Error('Deletion tests require the disposable local storage emulator on 9197.');
+let app,db,bucket;
 const limits=(kind,patch)=>({...WORK_LIMITS,[kind]:{...WORK_LIMITS[kind],...patch}});
 const owned=(uid,id)=>({id,userId:uid,url:'https://example.com',domain:'example.com',brandColor:'#123456',pages:[{url:'https://example.com',title:'Fictional QA',screenshots:[]}],textContent:'Synthetic website text for tests.',devices:['desktop'],enhancedAssets:[],copy:null,createdAt:'2026-10-23T00:00:00Z',status:'captured'});
 async function scout(uid) {const id='scout-'+randomUUID(),ref=db.collection('privateScouts').doc(id);await ref.set(owned(uid,id));return ref;}
 const accountRef=(uid,kind)=>db.collection(LIMIT_COLLECTION).doc(`account-${createHash('sha256').update(uid).digest('hex')}-${kind}`);
 const globalRef=kind=>db.collection(LIMIT_COLLECTION).doc('global-'+kind);
-before(()=>{app=initializeApp({projectId},'myscouter-work-tests');db=getFirestore(app);});
+before(()=>{app=initializeApp({projectId,storageBucket:projectId+'.appspot.com'},'myscouter-work-tests');db=getFirestore(app);bucket=getStorage(app).bucket();});
 beforeEach(async()=>{
  // Only the strict demo project on the loopback emulator can reach this cleanup.
  await db.recursiveDelete(db.collection(LIMIT_COLLECTION));
@@ -186,4 +190,92 @@ test('history rejects malformed and cross-account cursors; cursor positions cann
  const values=JSON.parse(Buffer.from(page.nextCursor,'base64url'));values[1]=other;
  const position=await readScoutHistory(db,other,Buffer.from(JSON.stringify(values)).toString('base64url'));
  for(const result of position.scouts)assert.equal((await db.collection('privateScouts').doc(result.id).get()).data().userId,other);
+});
+
+const putObject=async(name)=>{await bucket.file(name).save(Buffer.from('Synthetic deletion fixture'),{resumable:false});};
+
+test('deletion checks ownership before storage and removes only the exact private pack folder across pages',async()=>{
+ const uid=randomUUID(),ref=await scout(uid),other=await scout(randomUUID());
+ let lists=0;const unreadable={getFiles:async()=>{lists++;throw Error('Must not list');}};
+ await assert.rejects(removeScout(db,unreadable,'other-owner',ref.id),{status:404});
+ await assert.rejects(removeScout(db,unreadable,uid,'scout-'+randomUUID()),{status:404});
+ await assert.rejects(removeScout(db,unreadable,uid,'../outside'),{status:404});
+ assert.equal(lists,0);
+ const prefix=`private-scouts/${ref.id}/`;
+ const keep=[`private-scouts/${other.id}/other.png`,`private-scouts/${ref.id}-sibling/keep.png`,`scouts/${ref.id}/legacy.png`];
+ await Promise.all(keep.map(putObject));
+ for(let offset=0;offset<205;offset+=20)await Promise.all(Array.from({length:Math.min(20,205-offset)},(_,i)=>putObject(prefix+`orphan-${offset+i}.png`)));
+ await removeScout(db,bucket,uid,ref.id);
+ assert.equal((await ref.get()).exists,false);
+ assert.equal((await bucket.getFiles({prefix}))[0].length,0);
+ for(const name of keep){assert.equal((await bucket.file(name).download())[0].toString(),'Synthetic deletion fixture');}
+ assert.equal((await other.get()).exists,true);
+});
+
+test('active processing blocks deletion; deleting packs reject cached work and stale completion without refunding usage',async()=>{
+ for(const kind of ['capture','enhance','copy']) {
+  const uid=randomUUID(),ref=await scout(uid),store=workStore(db);
+  const result=await store.reserve(uid,kind,kind==='capture'?undefined:ref);
+  await assert.rejects(store.beginDeletion(uid,ref),{status:409});
+  assert.equal((await ref.get()).data().status,'captured');
+  await store.release(result.lease);
+  await ref.update({copy:{pitch:'Synthetic'},enhancedAssets:['synthetic.png'],progress:{detail:'Synthetic'}});
+  const before=(await accountRef(uid,kind).get()).data();
+  await store.beginDeletion(uid,ref);await store.beginDeletion(uid,ref);
+  const deleting=(await ref.get()).data();
+  assert.equal(deleting.status,'deleting');assert.equal(deleting.textContent,'');assert.equal(deleting.copy,null);assert.deepEqual(deleting.pages,[]);assert.deepEqual(deleting.enhancedAssets,[]);assert.equal(deleting.progress,undefined);
+  assert.throws(()=>assertOwner(deleting,uid),{status:404});
+  for(const next of ['enhance','copy'])await assert.rejects(store.reserve(uid,next,ref),{status:404});
+  await assert.rejects(store.complete(result.lease,ref,{status:'complete'}),{status:404});
+  assert.deepEqual((await accountRef(uid,kind).get()).data(),before);
+  await removeScout(db,bucket,uid,ref.id);
+  assert.deepEqual((await accountRef(uid,kind).get()).data(),before);
+ }
+});
+
+test('concurrent processing start and deletion cannot both acquire a pack',async()=>{
+ for(let n=0;n<4;n++){
+  const uid=randomUUID(),ref=await scout(uid),store=workStore(db);
+  const results=await Promise.allSettled([store.reserve(uid,'enhance',ref),store.beginDeletion(uid,ref)]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  if(results[0].status==='fulfilled'){
+   assert.equal(results[1].reason.status,409);await store.release(results[0].value.lease);
+  }else{assert.equal(results[0].reason.status,404);}
+  await removeScout(db,bucket,uid,ref.id);assert.equal((await ref.get()).exists,false);
+ }
+});
+
+test('partial object deletion and failed final database writes retain inaccessible retry state',async()=>{
+ const uid=randomUUID(),ref=await scout(uid),prefix=`private-scouts/${ref.id}/`;
+ await Promise.all(['a.png','b.png'].map(name=>putObject(prefix+name)));
+ const failing={getFiles:async options=>{
+  const [files]=await bucket.getFiles(options);
+  return [files.map(file=>({name:file.name,delete:options=>file.name.endsWith('/b.png')?Promise.reject(Error('Synthetic storage failure')):file.delete(options)}))];
+ }};
+ await assert.rejects(removeScout(db,failing,uid,ref.id),{status:503});
+ assert.equal((await bucket.file(prefix+'a.png').exists())[0],false);
+ assert.equal((await bucket.file(prefix+'b.png').exists())[0],true);
+ assert.equal((await ref.get()).data().status,'deleting');
+ const history=await readScoutHistory(db,uid,null);assert.equal(history.scouts[0].status,'deleting');assert.deepEqual(history.scouts[0].pages,[]);
+ await removeScout(db,bucket,uid,ref.id);assert.equal((await ref.get()).exists,false);
+
+ const finalRef=await scout(uid);await putObject(`private-scouts/${finalRef.id}/last.png`);
+ let transaction=0;
+ const failFinal={collection:name=>db.collection(name),runTransaction:callback=>++transaction===2?Promise.reject(Error('Synthetic database failure')):db.runTransaction(callback)};
+ await assert.rejects(removeScout(failFinal,bucket,uid,finalRef.id),{status:503});
+ assert.equal((await finalRef.get()).data().status,'deleting');
+ assert.equal((await bucket.getFiles({prefix:`private-scouts/${finalRef.id}/` }))[0].length,0);
+ await removeScout(db,bucket,uid,finalRef.id);assert.equal((await finalRef.get()).exists,false);
+ await workStore(db).finishDeletion(uid,finalRef);
+});
+
+test('unexpected storage scope or an unbounded listing cannot broaden or silently finish cleanup',async()=>{
+ const uid=randomUUID(),ref=await scout(uid);let deletes=0;
+ await assert.rejects(removeScout(db,{getFiles:async()=>[[{name:'outside/keep.png',delete:async()=>{deletes++;}}]]},uid,ref.id),{status:503});
+ assert.equal(deletes,0);assert.equal((await ref.get()).data().status,'deleting');
+ let lists=0,active=0,maxActive=0;
+ const repeating={getFiles:async()=>{lists++;return[Array.from({length:100},(_,i)=>({name:`private-scouts/${ref.id}/${i}.png`,delete:async()=>{active++;maxActive=Math.max(maxActive,active);await new Promise(resolve=>setImmediate(resolve));active--;deletes++;}}))];}};
+ await assert.rejects(removeScout(db,repeating,uid,ref.id),{status:503});
+ assert.equal(lists,11);assert.equal(deletes,1000);assert.equal(maxActive,4);assert.equal((await ref.get()).exists,true);
+ await removeScout(db,bucket,uid,ref.id);
 });

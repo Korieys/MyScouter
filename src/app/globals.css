@@ -414,6 +414,13 @@ button:disabled {
 .history-empty p { margin-bottom: 1rem; }
 .history-empty a { display: inline-block; text-decoration: none; }
 .history-more { margin-top: 1.25rem; }
+.history-actions button { padding: 8px 16px; font-size: 0.8rem; }
+.history-delete { flex-basis: 100%; min-width: 0; padding-top: 1.25rem; border-top: 1px solid var(--rope); overflow-wrap: anywhere; }
+.history-delete h3 { font-family: var(--font-display); font-size: 1.15rem; }
+.history-delete p { margin: 0.75rem 0; }
+.history-delete label { display: block; margin: 1rem 0 0.4rem; }
+.history-delete input { display: block; box-sizing: border-box; width: 100%; max-width: 18rem; padding: 0.7rem; border: 1px solid var(--rope); border-radius: 6px; font: inherit; margin-bottom: 1rem; }
+.history-delete-final { color: #8b2d20; border-color: #8b2d20; }
 
 @media (max-width: 768px) {
   .heading-display {

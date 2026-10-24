@@ -10,7 +10,8 @@ export interface ScoutRecord {
     id: string; userId: string; url: string; domain: string; brandColor: string;
     pages: CapturedPage[]; textContent: string; devices: string[];
     enhancedAssets: string[]; copy: ScoutCopy | null; createdAt: string;
-    status: 'capturing' | 'captured' | 'complete' | 'failed';
+    status: 'capturing' | 'captured' | 'complete' | 'failed' | 'deleting';
+    deletionStartedAt?: string;
     progress?: { step: string; detail: string; progress: number; timestamp: number };
 }
 export function validScoutId(value: unknown): string {
@@ -30,7 +31,7 @@ export async function verifiedUser(request: Request, verify: (token: string, rev
     }
 }
 export function assertOwner(record: ScoutRecord | undefined, uid: string): ScoutRecord {
-    if (!record || record.userId !== uid) throw new ScoutError(404, 'This scout is unavailable for your account.');
+    if (!record || record.userId !== uid || record.status === 'deleting') throw new ScoutError(404, 'This scout is unavailable for your account.');
     return record;
 }
 export function assetName(value: unknown): string {

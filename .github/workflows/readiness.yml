@@ -37,4 +37,4 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - run: npx --yes firebase-tools@15.34.0 emulators:exec --config firebase.emulators.json --project demo-myscouter-readiness --only firestore "npm run test:database"
+      - run: npx --yes firebase-tools@15.34.0 emulators:exec --config firebase.emulators.json --project demo-myscouter-readiness --only firestore,storage "npm run test:database"

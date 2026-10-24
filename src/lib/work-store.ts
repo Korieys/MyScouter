@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from 'node:crypto';
-import type {DocumentReference, Firestore} from 'firebase-admin/firestore';
+import {FieldValue, type DocumentReference, type Firestore} from 'firebase-admin/firestore';
 import {assertOwner, assetName, ScoutError, type ScoutRecord} from './scout-access';
 import {secondsUntilReset, WORK_LIMITS, type WorkKind} from './work-policy';
 
@@ -34,6 +34,31 @@ export function workStore(db:Firestore, clock:()=>number = Date.now, limits = WO
         global:db.collection(LIMIT_COLLECTION).doc(`global-${kind}`),
     });
     return {
+        async beginDeletion(uid:string,scout:DocumentReference) {
+            const accounts = (['capture','enhance','copy'] as const).map(kind=>refs(uid,kind).account);
+            await db.runTransaction(async transaction=>{
+                const snapshots=await transaction.getAll(scout,...accounts);
+                const record=snapshots[0].data() as ScoutRecord | undefined;
+                if (!record || record.userId!==uid) throw new ScoutError(404,'This scout is unavailable for your account. Refresh your history to check its latest state.');
+                if(record.status==='deleting')return;
+                const now=clock();
+                for(const snapshot of snapshots.slice(1)) {
+                    if(bucket(snapshot.data(),now).active.length)throw new ScoutError(409,'Wait for your current capture or processing to finish before deleting a pack.');
+                }
+                // The shared reads make concurrent processing starts conflict and retry.
+                transaction.update(scout,{status:'deleting',deletionStartedAt:new Date(now).toISOString(),
+                    pages:[],enhancedAssets:[],copy:null,textContent:'',progress:FieldValue.delete()});
+            });
+        },
+        async finishDeletion(uid:string,scout:DocumentReference) {
+            await db.runTransaction(async transaction=>{
+                const snapshot=await transaction.get(scout);
+                if(!snapshot.exists)return; // Another confirmed cleanup already finished.
+                const record=snapshot.data() as ScoutRecord;
+                if(record.userId!==uid || record.status!=='deleting')throw new ScoutError(409,'The pack changed before deletion finished. Refresh your history.');
+                transaction.delete(scout);
+            });
+        },
         async reserve(uid:string,kind:WorkKind,scout?:DocumentReference):Promise<Reservation> {
             const {account,global}=refs(uid,kind);
             const token=randomUUID();

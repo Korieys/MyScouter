@@ -84,3 +84,54 @@ test('strict-effect cleanup cannot cancel a replacement load or publish a late r
  rendered.unmount();assert.equal(requests.at(-1).aborted,true);
  await act(async()=>complete(response([entry(2)])));assert.equal(screen.queryByText('site2.example'),null);
 });
+
+test('deletion requires typed confirmation and Keep pack or Escape leaves data untouched',async()=>{
+ const methods=[];globalThis.fetch=async(path,options)=>{methods.push(options.method||'GET');return response([entry(1)]);};
+ render(view(user('owner-a')));await screen.findByText('site1.example');
+ const trigger=screen.getByRole('button',{name:'Delete pack for site1.example'});fireEvent.click(trigger);
+ const input=screen.getByLabelText('Type DELETE to confirm');assert.equal(document.activeElement,input);
+ assert.equal(screen.getByRole('button',{name:'Permanently delete pack'}).disabled,true);
+ fireEvent.change(input,{target:{value:'delete'}});assert.equal(screen.getByRole('button',{name:'Permanently delete pack'}).disabled,true);
+ fireEvent.change(input,{target:{value:'DELETE'}});assert.equal(screen.getByRole('button',{name:'Permanently delete pack'}).disabled,false);
+ fireEvent.click(screen.getByRole('button',{name:'Keep pack'}));assert.equal(screen.queryByRole('group'),null);assert.equal(document.activeElement,trigger);
+ fireEvent.click(trigger);assert.equal(screen.getByLabelText('Type DELETE to confirm').value,'');fireEvent.keyDown(screen.getByLabelText('Type DELETE to confirm'),{key:'Escape'});
+ assert.equal(screen.queryByRole('group'),null);assert.deepEqual(methods,['GET']);assert.ok(screen.getByRole('link',{name:'View pack for site1.example'}));
+});
+
+test('deletion failure retains the row and retry removes it only after confirmed success',async()=>{
+ let finish,attempts=0;
+ globalThis.fetch=async(path,options)=>{
+  if(options.method!=='DELETE')return response([entry(1)]);
+  attempts++;return attempts===1?new Promise(resolve=>{finish=resolve;}):Response.json({deleted:true});
+ };
+ render(view(user('owner-a')));await screen.findByText('site1.example');fireEvent.click(screen.getByRole('button',{name:'Delete pack for site1.example'}));
+ fireEvent.change(screen.getByLabelText('Type DELETE to confirm'),{target:{value:'DELETE'}});
+ fireEvent.click(screen.getByRole('button',{name:'Permanently delete pack'}));fireEvent.click(screen.getByRole('button',{name:'Deleting pack…'}));
+ await waitFor(()=>assert.ok(finish));assert.equal(attempts,1);assert.equal(screen.getByRole('button',{name:'Close',exact:true}).disabled,true);
+ await act(async()=>finish(Response.json({error:'Deletion needs a retry'},{status:503})));
+ await screen.findByRole('alert');assert.ok(screen.getByText('site1.example'));assert.equal(screen.queryByText('The site1.example pack was deleted.'),null);
+ assert.equal(screen.queryByRole('button',{name:'Keep pack'}),null);
+ fireEvent.click(screen.getByRole('button',{name:'Permanently delete pack'}));await screen.findByText('The site1.example pack was deleted.');
+ assert.equal(attempts,2);assert.equal(screen.queryByRole('article'),null);assert.ok(screen.getByText('No scouts yet'));assert.equal(document.activeElement,screen.getByRole('button',{name:'Refresh history'}));
+});
+
+test('incomplete deletion is visibly retryable after reload and no longer links to the pack',async()=>{
+ globalThis.fetch=async()=>response([{...entry(1),status:'deleting',pages:[]}]);
+ render(view(user('owner-a')));await screen.findByText('site1.example');
+ assert.equal(screen.queryByRole('link',{name:'View pack for site1.example'}),null);
+ fireEvent.click(screen.getByRole('button',{name:'Finish deleting site1.example'}));
+ assert.ok(screen.getByRole('button',{name:'Close',exact:true}));assert.equal(screen.getByRole('button',{name:'Permanently delete pack'}).disabled,true);
+ fireEvent.click(screen.getByRole('button',{name:'Close',exact:true}));assert.ok(screen.getByRole('button',{name:'Finish deleting site1.example'}));
+});
+
+test('an account change aborts a pending deletion and ignores its late response',async()=>{
+ let finish,deleteSignal;
+ globalThis.fetch=async(path,options)=>{
+  if(options.method==='DELETE'){deleteSignal=options.signal;return new Promise(resolve=>{finish=resolve;});}
+  return response([entry(options.headers.get('Authorization')==='Bearer owner-b'?9:1)]);
+ };
+ const rendered=render(view(user('owner-a')));await screen.findByText('site1.example');fireEvent.click(screen.getByRole('button',{name:'Delete pack for site1.example'}));
+ fireEvent.change(screen.getByLabelText('Type DELETE to confirm'),{target:{value:'DELETE'}});fireEvent.click(screen.getByRole('button',{name:'Permanently delete pack'}));
+ await waitFor(()=>assert.ok(finish));rendered.rerender(view(user('owner-b')));await screen.findByText('site9.example');assert.equal(deleteSignal.aborted,true);
+ await act(async()=>finish(Response.json({deleted:true})));assert.ok(screen.getByText('site9.example'));assert.equal(screen.queryByText('The site1.example pack was deleted.'),null);assert.equal(screen.queryByRole('group'),null);
+});

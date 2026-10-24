@@ -1,6 +1,6 @@
 # MyScouter customer-readiness repair
 
-Status: draft PR, not a production release. The earlier public ZIP implementation was verified in a hosted preview. This follow-up changes storage and account access and requires a fresh signed-in hosted check before release.
+Status: draft PR, not a production release. Commit 7b03661 passed a fresh hosted single-account capture, enhancement, copy, saved-history reopen/reload and native ZIP/PNG download check. The subsequent customer-controlled deletion feature requires its own validation; earlier hosted evidence does not certify deletion.
 
 ## Behavior
 
@@ -36,6 +36,20 @@ Reservations outlive each function's maximum runtime and remain active across mi
 - Added and verified Enabled one collection index for `privateScouts`: `userId` ascending, `createdAt` descending; index ID `CICAgOjXh4EK`. The index does not grant access. Existing security policies and credentials were not changed.
 - Legacy records and public image objects were not migrated, deleted or made private. Earlier timestamp IDs are not accepted by the new owner API. Do not advertise retroactive privacy or recovery of untrusted legacy ownership.
 
+## Customer-controlled deletion
+
+The owner approved implementation and draft publication of this feature on October 24, 2026. That approval does not cover deleting an existing live pack, a merge or a production release.
+
+The dashboard identifies the selected pack by domain and capture date, explains that saved screenshots, mockups, website text and AI copy will be removed, and requires typing DELETE before the final action. Canceling before submission leaves it unchanged. Once a request starts, closing the page does not undo it. Timeouts report an uncertain outcome and direct the customer to refresh history. Previously downloaded copies remain on the customer's device.
+
+DELETE `/api/scouts/{id}` verifies a revocation-checked owner token before any data access. A transaction reads the exact pack plus the owner's capture, enhancement and copy reservations, and rejects active work. Those reads conflict with concurrent reservations. The transaction marks the pack `deleting`, removes saved website/copy/image-reference content, and retains only dashboard metadata for retry. Ordinary record access, assets, ZIP downloads and further processing reject that state. Usage counters are never refunded or removed.
+
+Cleanup lists only the server-derived `private-scouts/{validated-UUID}/` prefix, including outputs from failed attempts. It reads 100 objects per batch, deletes four at a time and bounds each request to 1,000 objects and a 40-second cleanup deadline. The next list starts from the beginning to avoid skips while deleting. Only an empty folder followed by successful database finalization counts as completion. On failure, the record remains inaccessible and the dashboard offers Finish deleting. Already removed objects can safely be retried. Concurrent confirmed cleanups may share the work, but neither can affect a neighboring UUID folder or reset usage.
+
+The disposable database test setup now starts both Firestore and Storage emulators. Tests refuse to run unless their hosts are exactly `127.0.0.1:8187` and `127.0.0.1:9197`, with the fixed `demo-myscouter-readiness` project. They verify real file removal across multiple list batches, owner and folder isolation, active-work races, partial storage failure/retry and a failed final database write. No live credential or customer record is used.
+
+This is explicit removal from the application's active records and objects. Automatic retention, whole-account deletion, provider backup/soft-delete retention and cleanup of outputs from workers that outlive their enforced execution window remain separate operational requirements.
+
 ## Verification
 
 30 local regression checks cover archive contents and failures; a streamed file larger than 6 MiB with exact SHA-256 and chunk limits; the generated ZIP passed through the actual server response and browser download reader byte-for-byte; truncated, damaged, oversized and wrong-type files; token/body timeouts and cancellation; unsigned requests to all eight endpoints; identity, revocation, cross-account and missing-record handling; safe file references; input limits; output privacy; copy validation; private/reserved addresses; all-answer DNS checks and rebinding; actual local HTTP/CONNECT rejection; proxy connection limits and idempotent cleanup. Two native image tests render all 11 mockup, collage and social outputs, decode their PNGs, check dimensions and retained screenshot pixels, and reject invalid images before storage. Tests use fictional identities and service doubles; they do not substitute for hosted two-account verification.
@@ -54,12 +68,13 @@ The production dependency audit now reports four advisory entries (all high, non
 
 Upgrade references: [Firebase Admin 14 breaking changes](https://github.com/firebase/firebase-admin-node/releases/tag/v14.0.0), [Sharp 0.35 migration](https://sharp.pixelplumbing.com/changelog/v0.35.0/), [Sharp 0.35.5](https://sharp.pixelplumbing.com/changelog/v0.35.5/), and [Puppeteer browser compatibility](https://pptr.dev/supported-browsers).
 
-Fourteen database-emulator groups exercise real concurrent transactions, account/global capacity, failure and replay behavior, midnight/expiry fencing, cross-owner rejection, malformed usage state, unique enhancement names and client denial of private records/usage. The client-transport check creates and merges an owned profile, reads back intact fields, rejects another account's read/write and confirms no unauthorized change. Four history groups cover 45 owned records across tied timestamps, exact-page endings, empty history, a deleted cursor anchor, concurrent newer inserts, invalid/cross-account cursors and metadata-only output. The emulator is restricted to the disposable `demo-myscouter-readiness` project at `127.0.0.1:8187`; its rules fixture reproduces the inspected live policy and is not a policy deployment. Run with `firebase emulators:exec --config firebase.emulators.json --project demo-myscouter-readiness --only firestore "npm run test:database"`. Java 21 and Firebase CLI 15.34.0 are configured in CI; local Windows does not currently have Java on PATH.
+Fourteen database-emulator groups exercise real concurrent transactions, account/global capacity, failure and replay behavior, midnight/expiry fencing, cross-owner rejection, malformed usage state, unique enhancement names and client denial of private records/usage. The client-transport check creates and merges an owned profile, reads back intact fields, rejects another account's read/write and confirms no unauthorized change. Four history groups cover 45 owned records across tied timestamps, exact-page endings, empty history, a deleted cursor anchor, concurrent newer inserts, invalid/cross-account cursors and metadata-only output. The emulator is restricted to the disposable `demo-myscouter-readiness` project at `127.0.0.1:8187`; its rules fixture reproduces the inspected live policy and is not a policy deployment. Run with `firebase emulators:exec --config firebase.emulators.json --project demo-myscouter-readiness --only firestore,storage "npm run test:database"`. Java 21 and Firebase CLI 15.34.0 are configured in CI; local Windows does not currently have Java on PATH.
 
 ## Remaining release gates
 
-- Fresh hosted capture, enhancement, copy, history and reopen, individual download, and ZIP integrity on this private-storage implementation.
-- Hosted anonymous and second-account rejection, plus direct unauthenticated object denial.
+- Repeat any affected hosted workflow for the deletion follow-up. Commit 7b03661 already passed single-account capture, enhancement, copy, history/reopen/reload, individual download and ZIP integrity (ten fully decoded images, 816,341 bytes). The separate PNG matches its ZIP entry and a second saved ZIP has identical entry contents.
+- Hosted second-account rejection and broader anonymous/write-path coverage. At 7b03661, tokenless pack, image and history GET requests were denied and both direct object URLs returned explicit HTTP 403 denial.
+- Verify deletion confirmation/cancellation in the updated preview. A destructive hosted test needs separate owner approval for the exact synthetic pack; existing live packs must remain untouched without that approval.
 - Passing real Chromium proxy scenarios in hosted CI, then Vercel-runtime verification and broader browser-transport coverage. The fixture scenarios do not prove every network path or isolate native browser exploits.
 - Hosted reservation/limit behavior, edge abuse controls and operator-defined cloud/provider budgets and alerts. Shared job caps do not eliminate billing from rejected traffic or retained files.
 - A dedicated isolated capture worker with restricted cloud identity, retention/cleanup, user deletion, recovery of interrupted work, support and mobile checks. Hosted older-history paging is still unverified.

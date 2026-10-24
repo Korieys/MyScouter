@@ -119,6 +119,28 @@ test('current rules deny all client reads and writes of private packs and usage 
  await workStore(db).release(reserved.lease);
 });
 
+test('client transport preserves profile merges and rejects another account',async()=>{
+ const uid='profile-'+randomUUID(),other='profile-'+randomUUID();
+ const clients=[uid,other].map(owner=>{
+  const app=clientApp({projectId,apiKey:'fictional-test-key'},'profile-client-'+randomUUID());
+  const client=clientFirestore(app);
+  connectFirestoreEmulator(client,'127.0.0.1',8187,{mockUserToken:{sub:owner,user_id:owner,email:'fictional@example.test'}});
+  return {app,client};
+ });
+ try {
+  const own=doc(clients[0].client,'users',uid);
+  await setDoc(own,{uid,email:'fictional@example.test',displayName:'Initial fictional name'},{merge:true});
+  await setDoc(own,{displayName:'Updated fictional name',lastLogin:'2026-10-24T00:00:00Z'},{merge:true});
+  assert.deepEqual((await getDoc(own)).data(),{uid,email:'fictional@example.test',displayName:'Updated fictional name',lastLogin:'2026-10-24T00:00:00Z'});
+  const foreign=doc(clients[1].client,'users',uid);
+  await assert.rejects(getDoc(foreign),{code:'permission-denied'});
+  await assert.rejects(setDoc(foreign,{displayName:'Must not be saved'},{merge:true}),{code:'permission-denied'});
+  assert.equal((await getDoc(own)).data().displayName,'Updated fictional name');
+ } finally {
+  for(const {app,client} of clients){await terminate(client);await deleteClientApp(app);}
+ }
+});
+
 async function historyFixtures(uid,count) {
  const records=Array.from({length:count},(_,index)=>{
   const id='scout-'+randomUUID();

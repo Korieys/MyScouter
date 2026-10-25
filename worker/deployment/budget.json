@@ -1,0 +1,44 @@
+{
+  "displayName": "MyScouter isolated capture preview — Oct 25–26",
+  "budgetFilter": {
+    "projects": [
+      "projects/778860260835"
+    ],
+    "customPeriod": {
+      "startDate": {
+        "year": 2026,
+        "month": 10,
+        "day": 25
+      },
+      "endDate": {
+        "year": 2026,
+        "month": 10,
+        "day": 27
+      }
+    },
+    "creditTypesTreatment": "EXCLUDE_ALL_CREDITS"
+  },
+  "amount": {
+    "specifiedAmount": {
+      "currencyCode": "USD",
+      "units": "5"
+    }
+  },
+  "thresholdRules": [
+    {
+      "thresholdPercent": 0.2,
+      "spendBasis": "CURRENT_SPEND"
+    },
+    {
+      "thresholdPercent": 0.4,
+      "spendBasis": "CURRENT_SPEND"
+    },
+    {
+      "thresholdPercent": 1,
+      "spendBasis": "CURRENT_SPEND"
+    }
+  ],
+  "allUpdatesRule": {
+    "disableDefaultIamRecipients": false
+  }
+}

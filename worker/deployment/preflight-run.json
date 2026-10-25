@@ -1,0 +1,25 @@
+{
+  "etag": "READ_FROM_CREATED_VERIFIED_JOB",
+  "overrides": {
+    "taskCount": 1,
+    "timeout": "60s",
+    "containerOverrides": [
+      {
+        "name": "capture",
+        "args": [
+          "worker/preflight-main.ts"
+        ],
+        "env": [
+          {
+            "name": "CAPTURE_PREFLIGHT_PROJECT",
+            "value": "myscouter-5f16b"
+          },
+          {
+            "name": "CAPTURE_PREFLIGHT_BUCKET",
+            "value": "myscouter-5f16b.firebasestorage.app"
+          }
+        ]
+      }
+    ]
+  }
+}

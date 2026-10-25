@@ -397,3 +397,125 @@ test('paging fixture cleanup refuses any changed row before deleting others, the
  await changed.set(fixtureRecords(uid,plan)[0]);
  assert.equal((await applyHistoryFixture(db,uid,'remove',plan)).removed,45);
 });
+
+import {workerStore,WORKER_COLLECTION} from '../../src/lib/capture-worker-broker.ts';
+import {parseCaptureInput,WORKER_LIMITS} from '../../src/lib/capture-worker-contract.ts';
+import {planWorkerCleanup,applyWorkerCleanup} from '../../src/lib/capture-worker-cleanup.ts';
+import {persistWorkerAsset,workerPng} from '../../src/lib/capture-worker-upload.ts';
+import {createWorkerHandler} from '../../src/lib/capture-worker-handler.ts';
+
+import sharp from 'sharp';
+const workerKey='ab'.repeat(32);
+async function workerFixture(options={}){
+ const uid=randomUUID(),id='scout-'+randomUUID(),ref=db.collection('privateScouts').doc(id),clock={now:Date.now()},window='qa-'+randomUUID();
+ await ref.set({...owned(uid,id),url:'https://worker-fixture.example.com/',status:'capturing',pages:[],textContent:'',createdAt:new Date(clock.now).toISOString()});
+ const usage=workStore(db,()=>clock.now),reserved=await usage.reserve(uid,'capture');
+ const input=parseCaptureInput({url:'https://worker-fixture.example.com/',devices:options.devices||['desktop'],...(options.login?{login:options.login}:{})},id);
+ const store=workerStore(db,workerKey,()=>clock.now,{id:window,limit:options.limit||20,until:clock.now+1000000});
+ const job=await store.create(input,reserved.lease);
+ return {uid,id,ref,clock,window,usage,lease:reserved.lease,input,store,job};
+}
+const pngFixture=()=>sharp({create:{width:1440,height:900,channels:3,background:'#123456'}}).png().toBuffer();
+async function storedWorkerShot(f,name='home-desktop-hero.png',save=false){
+ const png=await pngFixture(),meta=await workerPng(png),slot=await f.store.beginUpload(f.job.id,f.job.token,name,meta);
+ if(save)await persistWorkerAsset(bucket,f.id,slot.name,png,meta.sha256);
+ await f.store.finishUpload(f.job.id,f.job.token,slot.name,slot.lock);
+ return {path:slot.name,viewport:'desktop',width:1440,height:900,type:name.includes('-full')?'full':'hero'};
+}
+test('isolated job envelope is private, one-claim-only, and cannot be claimed with another capability',async()=>{
+ const f=await workerFixture();
+ const saved=await f.store.read(f.job.id);assert.notEqual(saved.capability,f.job.token);assert.equal(saved.state,'queued');
+ await assert.rejects(f.store.claim(f.job.id,'a'.repeat(43)),{status:404});
+ assert.deepEqual(await f.store.claim(f.job.id,f.job.token),f.input);
+ await assert.rejects(f.store.claim(f.job.id,f.job.token),{status:409});
+ assert.equal((await f.ref.get()).data().status,'capturing');
+});
+test('isolated preview execution budget is transactional, cumulative and never reset by failure',async()=>{
+ const f=await workerFixture({limit:2});await f.store.close(f.job.id);
+ const results=await Promise.allSettled([f.store.create(f.input,f.lease),f.store.create(f.input,f.lease)]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.find(r=>r.status==='rejected').reason.status,429);
+ const budget=await db.collection('privateCaptureWorkerBudgets').doc(f.window).get();assert.equal(budget.data().used,2);
+});
+test('worker callbacks are fenced by expiry, current reservation and account lifecycle',async()=>{
+ const f=await workerFixture();await f.store.claim(f.job.id,f.job.token);
+ f.clock.now=f.job.expiresAt;await assert.rejects(f.store.progress(f.job.id,f.job.token,'capture',35),{status:409});
+ const g=await workerFixture();await g.store.claim(g.job.id,g.job.token);await g.usage.release(g.lease);
+ await assert.rejects(g.store.progress(g.job.id,g.job.token,'capture',35),{status:409});
+ const h=await workerFixture();await h.store.claim(h.job.id,h.job.token);await accountStateRef(db,h.uid).set({uid:h.uid,state:'deleting'});
+ await assert.rejects(h.store.progress(h.job.id,h.job.token,'capture',35),{status:409});
+});
+test('worker progress uses bounded server-owned text and cannot move backwards or finish the customer trail',async()=>{
+ const f=await workerFixture();await f.store.claim(f.job.id,f.job.token);
+ await f.store.progress(f.job.id,f.job.token,'capture',35);
+ const p=(await f.ref.get()).data().progress;assert.equal(p.detail,'Capturing website pages...');
+ await assert.rejects(f.store.progress(f.job.id,f.job.token,'browser',10),{status:409});
+ await assert.rejects(f.store.progress(f.job.id,f.job.token,'done',100),{status:400});
+ await db.collection(WORKER_COLLECTION).doc(f.job.id).update({calls:WORKER_LIMITS.calls});
+ await assert.rejects(f.store.progress(f.job.id,f.job.token,'capture',40),{status:429});
+});
+test('upload fence serializes decoding, reserves bytes once, and refuses replacement or another namespace',async()=>{
+ const f=await workerFixture();await f.store.claim(f.job.id,f.job.token);
+ const meta=await workerPng(await pngFixture());
+ const results=await Promise.allSettled([f.store.beginUpload(f.job.id,f.job.token,'home-desktop-hero.png',meta),f.store.beginUpload(f.job.id,f.job.token,'home-desktop-full.png',meta)]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.find(r=>r.status==='rejected').reason.status,409);
+ const slot=results.find(r=>r.status==='fulfilled').value;
+ await f.store.finishUpload(f.job.id,f.job.token,slot.name,slot.lock);
+ const raw=slot.name.slice(39),again=await f.store.beginUpload(f.job.id,f.job.token,raw,meta);assert.equal(again.stored,true);
+ assert.equal((await f.store.read(f.job.id)).bytes,meta.bytes);
+ await assert.rejects(f.store.beginUpload(f.job.id,f.job.token,raw,{...meta,sha256:'00'.repeat(32)}),{status:409});
+ await assert.rejects(f.store.beginUpload(f.job.id,f.job.token,'../foreign.png',meta),{status:400});
+ await assert.rejects(f.store.beginUpload(f.job.id,f.job.token,'home-desktop-full.png',{...meta,bytes:WORKER_LIMITS.assetBytes+1}),{status:400});
+});
+test('worker finish validates saved assets; only the API reservation can commit a private pack',async()=>{
+ const f=await workerFixture();await f.store.claim(f.job.id,f.job.token);
+ const shots=[await storedWorkerShot(f),await storedWorkerShot(f,'home-desktop-full.png')];
+ await assert.rejects(f.store.finish(f.job.id,f.job.token,{pages:[],textContent:'forged',brandColor:'#123456'}),{status:422});
+ await f.store.finish(f.job.id,f.job.token,{pages:[{url:f.input.url,title:'Fictional page',screenshots:shots}],textContent:'Fixture text',brandColor:'#123456'});
+ const ready=await f.store.read(f.job.id);assert.equal(ready.state,'ready');assert.equal(ready.envelope,null);assert.equal(ready.capability,null);
+ assert.equal((await f.ref.get()).data().status,'capturing');
+ await f.usage.complete(f.lease,f.ref,{...ready.result,status:'captured'});
+ await f.store.close(f.job.id,true);assert.equal((await f.ref.get()).data().status,'captured');
+ await assert.rejects(f.usage.complete(f.lease,f.ref,{status:'captured'}),{status:409});
+});
+test('advanced worker login planning is bounded and redacts credentials again inside the API',async()=>{
+ const login={mode:'advanced',url:'https://worker-fixture.example.com/login',username:'fictional-owner@example.test',password:'fictional-password-only',consent:true,aiConsent:true};
+ const f=await workerFixture({login});await f.store.claim(f.job.id,f.job.token);
+ const fields=[{id:0,form:0,kind:'username',label:login.username+' '+login.password},{id:1,form:0,kind:'password',label:encodeURIComponent(login.password)},{id:2,form:0,kind:'submit',label:'Sign in'}];
+ let sent;const planner=async value=>{sent=JSON.stringify(value);return {username:0,password:1,submit:2};};
+ await f.store.plan(f.job.id,f.job.token,fields,planner);assert.ok(!sent.includes(login.password));assert.ok(!sent.includes(login.username));
+ await f.store.plan(f.job.id,f.job.token,fields,planner);
+ await assert.rejects(f.store.plan(f.job.id,f.job.token,fields,planner),{status:400});
+});
+test('binary callback rejects unsigned/cross-job input before reading or storing PNG bytes',async()=>{
+ const f=await workerFixture();await f.store.claim(f.job.id,f.job.token);let writes=0;
+ const handler=createWorkerHandler({store:f.store,verify:async r=>{if(r.headers.get('authorization')!=='Bearer fictional')throw Object.assign(Error('Worker identity required.'),{status:401});},save:async()=>{writes++;},planner:async()=>({})});
+ const r=new Request('https://broker.example/api',{method:'POST',headers:{Authorization:'Bearer fictional','x-capture-capability':'a'.repeat(43),'Content-Type':'image/png','Content-Length':'1','x-capture-width':'1440','x-capture-height':'900','x-capture-sha256':'00'.repeat(32)},body:new Uint8Array([0])});
+ assert.equal((await handler(r,f.job.id,'asset')).status,404);assert.equal(writes,0);
+});
+test('expired worker cleanup preserves referenced output and neighboring packs; changed plans cannot apply',async()=>{
+ const f=await workerFixture();await f.store.claim(f.job.id,f.job.token);
+ const keep=await storedWorkerShot(f,'home-desktop-hero.png',true),orphan=await storedWorkerShot(f,'home-desktop-full.png',true);
+ await f.ref.update({status:'captured',pages:[{url:f.input.url,title:'Fixture',screenshots:[keep]}]});await f.store.close(f.job.id,true);
+ f.clock.now=f.lease.until+60001;
+ const plan=await planWorkerCleanup(db,bucket,projectId,f.window,f.clock.now);
+ assert.equal(plan.actions[0].objects.length,1);assert.ok(plan.actions[0].objects[0].name.endsWith(orphan.path));
+ await f.ref.update({copy:{tagline:'Changed after review'}});
+ await assert.rejects(applyWorkerCleanup(db,bucket,projectId,plan,f.clock.now),{status:409});
+ const fresh=await planWorkerCleanup(db,bucket,projectId,f.window,f.clock.now);
+ const tampered=structuredClone(fresh);tampered.actions[0].objects[0].name='private-scouts/scout-22222222-2222-4222-8222-222222222222/other.png';
+ await assert.rejects(applyWorkerCleanup(db,bucket,projectId,tampered,f.clock.now),{status:409});
+ assert.deepEqual(await applyWorkerCleanup(db,bucket,projectId,fresh,f.clock.now),{jobs:1,objects:1});
+ assert.equal((await bucket.file('private-scouts/'+f.id+'/'+keep.path).exists())[0],true);
+ assert.equal((await bucket.file('private-scouts/'+f.id+'/'+orphan.path).exists())[0],false);
+ assert.equal((await f.ref.get()).data().status,'captured');
+});
+test('abandoned encrypted login payloads can be purged after expiry without deleting a pack or active objects',async()=>{
+ const login={mode:'basic',url:'https://worker-fixture.example.com/login',username:'fictional',password:'fictional-password',consent:true};
+ const f=await workerFixture({login});f.clock.now=f.job.expiresAt+1;
+ const plan=await planWorkerCleanup(db,bucket,projectId,f.window,f.clock.now);
+ assert.equal(plan.actions[0].mode,'purge-envelope');assert.equal(plan.actions[0].objects.length,0);
+ await applyWorkerCleanup(db,bucket,projectId,plan,f.clock.now);
+ const j=await f.store.read(f.job.id);assert.equal(j.envelope,null);assert.equal(j.capability,null);
+ assert.equal((await f.ref.get()).data().status,'capturing');
+ await assert.rejects(f.store.claim(f.job.id,f.job.token),{status:404});
+});

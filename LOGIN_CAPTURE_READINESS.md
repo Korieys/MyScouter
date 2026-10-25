@@ -56,3 +56,18 @@ The four npm advisory entries are cleared by the upstream BiDi dependency replac
 ## Hosted second-account follow-up
 
 See HOSTED_ACCOUNT_VERIFICATION.md. All 26 endpoint controls pass with the actual second-account session, alongside 50-PNG native saving, hosted 20/40/47 history paging, daily-cap/replay enforcement and exact approved fixture cleanup. Basic login on a no-form public fixture stopped explicitly with fictional credentials and no guest capture; the failed record offered recovery without a ZIP control. No real third-party credentials were used.
+
+## Isolated-worker local follow-up — October 25
+
+The extracted engine now passes native Docker Basic and advanced fictional login
+journeys with five fully decoded PNGs each, plus explicit rejected-login recovery.
+Node-side settling timers fix a hang after native submission while page scripts
+remain disabled. The separate worker planner sends field IDs/forms/kinds only;
+website labels and credentials do not enter that AI input.
+
+This does not add positive hosted login proof. The proposed initial worker window
+is public-only; its login flag and new temporary-storage consent remain absent.
+Encrypted job input is cleared on completion/failure, but interrupted input needs
+the reviewed operator purge. A hosted credential-retention disclosure/consent and
+dedicated website fixture require separate review. No real website credentials
+were used. See ISOLATED_CAPTURE_WORKER.md and worker/deployment/REVIEW.md.

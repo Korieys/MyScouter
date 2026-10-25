@@ -74,32 +74,31 @@ assignment. Approved hosted deletion is limited to the exact synthetic
 45 metadata fixture rows in `history-fixture-manifest.json`. Both are complete;
 these approvals authorize no further pack or account deletion.
 
-## Required worker separation
+## Worker separation: locally implemented, activation pending
 
-The current capture route still launches Chromium in the API runtime. Proxy
-restrictions are network controls; they do not isolate a native browser exploit
-from the API's Firebase identity. **This remains a customer-launch blocker.**
+The default deployed capture still launches Chromium in the API runtime. Proxy
+checks alone do not isolate a native exploit from the API Firebase identity.
+The separate engine, fresh-task worker image, Google-identity/capability broker,
+API-only commit, bounded uploads and read-only IAM preflight are now implemented
+and proven locally with fictional native captures and disposable emulators.
+See [ISOLATED_CAPTURE_WORKER.md](ISOLATED_CAPTURE_WORKER.md) for exact proof and
+[worker/deployment/REVIEW.md](worker/deployment/REVIEW.md) for the inactive IAM,
+image, domain-protection and budget proposal. No cloud changes were applied.
 
-Concrete next implementation/deployment boundary:
+Worker encrypted input/capabilities are cleared at normal closure. The separate
+`npm run maintenance:worker -- --window isolation-preview-2026-10-25` planner
+can propose expiry purges and exact unreferenced worker-object cleanup after
+the 390-second writer fence. Its apply flag stays disabled. Applying requires
+a separately approved exact plan SHA, current project/versions/generations and
+a plan under one hour old. It preserves referenced assets, neighboring packs
+and usage counters. No live worker cleanup, retention or account deletion ran.
 
-1. Run one capture per disposable container with concurrency one, a 240-second
-   browser deadline, bounded CPU/memory and a dedicated service identity that has
-   no Firebase Auth, Firestore, Secret Manager or bucket read/list/delete roles.
-   Never pass the API environment or Firebase/OpenAI keys to that container.
-2. Keep owner authentication, account/global reservations and final record writes
-   in the API. Authorize worker jobs for one server-generated UUID and one
-   expiring lease. Authenticate invocation with an audience-bound platform token.
-3. Let the API broker bounded, attempt-specific uploads; the worker must not
-   receive a bucket-wide credential. Return only validated metadata and progress
-   for the same lease. Fence late output and clean it only after both execution
-   and upload authorization have expired.
-4. Deploy a **preview-only** worker and dedicated identity after the owner approves
-   the project, region, spend cap and exact IAM grants. Prove the worker's lack of
-   Auth/Firestore/object-read/delete access using fictional fixtures, then rerun
-   the hosted capture/login/ZIP and interrupted-worker tests.
-
-No new live identity or cloud role has been created by this change. A second
-Firebase Admin certificate in the same process would not satisfy this boundary.
+The initial hosted-worker proposal forbids website login until temporary
+encrypted credential storage has its own approved disclosure/consent and
+fixture. Local fictional Basic/advanced success does not authorize that change.
+Google IAM denial, inherited-policy checks, actual hosted progress/download and
+interrupted-work proof remain gates. Residual OS CVEs in the scanned image need
+remediation or a specific limited-preview decision before image deployment.
 
 ## Budgets, alerts and release checks
 

@@ -1,6 +1,43 @@
 # MyScouter customer-readiness repair
 
-Status: protected private capture preview on draft PR #1; customer launch and production release remain unapproved. Hosted second-account isolation, paging, daily-cap/replay, owned 50-image capture/download and exact approved fixture cleanup now pass. Isolated browser execution and live account/retention operations remain incomplete.
+Status: protected private capture preview on draft PR #1; customer launch and production release remain unapproved. Hosted second-account isolation, paging, daily-cap/replay, owned 50-image capture/download and exact approved fixture cleanup now pass. The separate worker is implemented and tested locally; cloud isolation and live account/retention operations remain unverified.
+
+## October 25 isolated-worker continuation
+
+See [ISOLATED_CAPTURE_WORKER.md](ISOLATED_CAPTURE_WORKER.md) and the inactive
+[exact IAM/deployment/budget review](worker/deployment/REVIEW.md). The engine now
+supports a fresh Cloud Run task with a keyless zero-data-role identity and a
+job-scoped authenticated upload/progress broker; the existing preview remains
+inline until separately approved activation. No new live identity, IAM, registry,
+job, budget, domain exception or worker flags were applied.
+
+The local production image renders as UID 10001 with no Firebase/OpenAI SDKs or
+API files. Four native Docker journeys pass through real broker logic and
+Firestore/Storage emulators: public capture 30 PNGs, Basic 5, advanced 5 and
+explicit rejected login with no guest result. All 40 PNGs fully decode and all
+three ZIPs pass CRC checks. Sixteen worker boundary checks and 37 database/storage
+groups pass; existing 55 application and 18 UI checks pass. Local lint, types,
+build and two built Next boundary checks pass. Exact-head CI is recorded in the
+project worker evidence. Mock worker identity/AI and fictional HTTPS responses
+mean these are local/emulated proofs, not hosted Cloud Run/IAM proof.
+
+Native login's script-disabled wait hang was fixed using Node timers. The trail,
+inline compatibility path and checked downloads are preserved. The worker's
+advanced planner accepts structure only, with page labels removed. Hosted worker
+login stays disabled pending a dedicated fixture and an explicit temporary
+credential-storage disclosure/consent decision; no real passwords were used.
+
+The final Debian 13 image scan has 56 high and one critical package finding
+(20 unique CVEs), with no fixed versions listed in the configured repository.
+The critical installed libxml2 finding remains a deployment gate requiring
+remediation or explicit limited-preview acceptance. Production npm audits are
+clear; that does not certify OS/browser/vendor bundles. The USD 5 budget,
+20-capture window ending 7 PM CDT October 26, broader project-preview federation
+and whole-domain protection exception are concrete proposals only.
+
+Hosted Google permission denial, interruption/cleanup, monitored lifecycle
+operations and alerts, positive hosted login and physical Safari/phone large
+ZIP behavior remain launch gates. Preserve the private-preview label.
 
 ## Latest hosted account verification
 

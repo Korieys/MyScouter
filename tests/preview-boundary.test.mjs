@@ -20,6 +20,8 @@ async function run(mode,expected) {
   assert.equal(response.status,expected,mode+' tester route');
   const fixture=await fetch('http://127.0.0.1:'+port+'/api/readiness/history-fixture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'seed',confirmation:'CREATE 45 FIXTURES'}),signal:AbortSignal.timeout(15000)});
   assert.equal(fixture.status,mode==='production'?404:401,'No unsigned or production fixture capability');
+  const worker=await fetch('http://127.0.0.1:'+port+'/api/capture-worker/11111111-1111-4111-8111-111111111111/claim',{method:'POST',body:'{}',signal:AbortSignal.timeout(15000)});
+  assert.equal(worker.status,404,'Worker callbacks stay unavailable without explicit preview activation');
   const html=await response.text();
   if(expected===200)assert.match(html,/Loading test session/);
   else assert.doesNotMatch(html,/First-account fictional pack IDs/);

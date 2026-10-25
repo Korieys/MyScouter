@@ -1,0 +1,44 @@
+{
+  "name": "projects/myscouter-5f16b/locations/us-central1/jobs/myscouter-preview-capture",
+  "labels": {
+    "application": "myscouter",
+    "purpose": "capture-preview",
+    "window": "isolation-2026-10-25"
+  },
+  "launchStage": "GA",
+  "template": {
+    "taskCount": 1,
+    "parallelism": 1,
+    "template": {
+      "serviceAccount": "myscouter-preview-capture@myscouter-5f16b.iam.gserviceaccount.com",
+      "timeout": "240s",
+      "maxRetries": 0,
+      "containers": [
+        {
+          "name": "capture",
+          "image": "us-central1-docker.pkg.dev/myscouter-5f16b/myscouter-preview-worker/capture@sha256:726fbc06daccd3ce9768993f49bff5d2548a876c5ccf3c5b6f1bc91e58e42e67",
+          "resources": {
+            "limits": {
+              "cpu": "2",
+              "memory": "2Gi"
+            }
+          },
+          "env": [
+            {
+              "name": "NODE_ENV",
+              "value": "production"
+            }
+          ],
+          "command": [
+            "node",
+            "--import",
+            "tsx"
+          ],
+          "args": [
+            "worker/main.ts"
+          ]
+        }
+      ]
+    }
+  }
+}

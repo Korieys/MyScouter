@@ -1,0 +1,19 @@
+{
+  "name": "myscouter-isolated-capture",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "@sparticuz/chromium-min": "153.0.0",
+    "puppeteer": "25.11.0",
+    "puppeteer-core": "25.11.0",
+    "sharp": "0.35.5",
+    "tsx": "4.23.15"
+  },
+  "overrides": {
+    "chromium-bidi": "157.0.8090-0"
+  }
+}

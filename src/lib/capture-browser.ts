@@ -6,8 +6,13 @@ import { publicUrl } from './public-network';
 import type {CaptureLogin, LoginControls} from './capture-login';
 
 export async function launchCaptureBrowser(proxyUrl: string, viewport: Viewport) {
-    if (process.env.NODE_ENV === 'production') {
-        const executablePath = await chromium.executablePath(
+    if(process.env.CAPTURE_WORKER_BROWSER==='chrome-for-testing'){
+        if(!process.env.CAPTURE_CHROMIUM_EXECUTABLE)throw Error('Missing isolated browser executable');
+        return puppeteerCore.launch({executablePath:process.env.CAPTURE_CHROMIUM_EXECUTABLE,defaultViewport:viewport,headless:'shell',pipe:true,browser:'chrome',protocol:'cdp',
+            args:captureBrowserArgs(proxyUrl,['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--renderer-process-limit=2'])});
+    }
+    if (process.env.NODE_ENV === 'production' || process.env.CAPTURE_CHROMIUM_EXECUTABLE) {
+        const executablePath = process.env.CAPTURE_CHROMIUM_EXECUTABLE || await chromium.executablePath(
             'https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar'
         );
         return puppeteerCore.launch({

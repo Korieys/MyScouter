@@ -1,0 +1,34 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import assert from 'node:assert/strict';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const manifest=JSON.parse(await fs.readFile(path.join(root,'worker/deployment/review-manifest.json'),'utf8'));
+assert.equal(manifest.status,'prepared-not-applied');
+assert.equal(manifest.window.end,'2026-10-27T00:00:00.000Z');
+assert.equal(manifest.window.applicationExecutions,20);
+for(const [file,expected] of Object.entries(manifest.files)){
+ assert.ok(!file.startsWith('/')&&!file.split('/').includes('..'));
+ const raw=(await fs.readFile(path.join(root,file),'utf8')).replace(/\r\n/g,'\n');
+ assert.equal(createHash('sha256').update(raw).digest('hex'),expected,'Review changed: '+file);
+}
+const read=async file=>JSON.parse(await fs.readFile(path.join(root,'worker/deployment',file),'utf8'));
+const job=await read('job.json'),task=job.template.template,c=task.containers[0];
+assert.equal(c.image,manifest.image.registry+'@'+manifest.image.indexDigest);
+assert.equal(job.template.taskCount,1);assert.equal(job.template.parallelism,1);assert.equal(task.maxRetries,0);
+assert.equal(task.timeout,'240s');assert.deepEqual(c.resources.limits,{cpu:'2',memory:'2Gi'});
+assert.equal(task.serviceAccount,'myscouter-preview-capture@myscouter-5f16b.iam.gserviceaccount.com');
+assert.deepEqual(c.command,['node','--import','tsx']);assert.deepEqual(c.args,['worker/main.ts']);
+const role=await read('dispatch-role.json');
+assert.deepEqual([...role.includedPermissions].sort(),['run.executions.cancel','run.jobs.run','run.jobs.runWithOverrides']);
+const config=await read('activation-config.example.json');
+assert.equal(config.gitBranch,'codex/customer-ready-download');assert.equal(config.target,'preview');
+assert.ok(config.remainDisabled.includes('CAPTURE_WORKER_LOGIN_ENABLED'));
+assert.ok(config.remainDisabled.includes('CAPTURE_WORKER_MAINTENANCE_ENABLED'));
+assert.equal(config.values.CAPTURE_WORKER_WINDOW_END,manifest.window.end);
+const budget=await read('budget.json');
+assert.equal(budget.amount.specifiedAmount.units,'5');assert.equal(budget.amount.specifiedAmount.currencyCode,'USD');
+assert.deepEqual(budget.thresholdRules.map(t=>t.thresholdPercent),[0.2,0.4,1]);
+const digest=createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
+console.log(JSON.stringify({passed:true,files:Object.keys(manifest.files).length,manifestCanonicalSha256:digest,status:manifest.status,cloudActivated:false}));

@@ -26,7 +26,10 @@
     "test:browser-download": "tsx --test tests/browser/download-save.test.mjs",
     "test:browser-login": "tsx --test tests/browser/capture-login.test.mjs",
     "maintenance:plan": "tsx scripts/maintenance.ts",
-    "test:preview-boundary": "node --test tests/preview-boundary.test.mjs"
+    "test:preview-boundary": "node --test tests/preview-boundary.test.mjs",
+    "test:worker": "tsx --test tests/worker/*.test.mjs",
+    "maintenance:worker": "tsx scripts/capture-worker-maintenance.ts",
+    "test:worker-container": "node --import tsx tests/worker/container-journey.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
@@ -41,7 +44,9 @@
     "puppeteer-core": "25.11.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "sharp": "0.35.5"
+    "sharp": "0.35.5",
+    "jose": "5.10.0",
+    "@google-cloud/storage": "8.4.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",

@@ -47,9 +47,8 @@ client progress. Browser fixtures use only fictional credentials and locally
 fulfilled responses. The existing browser network, ZIP, owner, quota and deletion
 checks remain required in CI; exact results are in the PR and readiness report.
 
-Hosted progress-query behavior still needs confirmation: emulator queries do not
-prove production index availability. Real login-provider compatibility, a second
-hosted owner account, live deletion of the synthetic pack and customer release
-remain separate gates. The existing four high dependency audit entries in the
-Puppeteer dependency chain remain documented; no incompatible browser upgrade is
-included in this merge.
+Hosted owner/job progress is now directly observed at 6e0dfb6: browser startup and page-discovery details precede a successfully saved pack (displayed trail values were 11% and 30%, with animation easing). A concurrent second-tab request was rejected and its form recovered. The trail and login flow remain unchanged. Native form compatibility still has six passing fictional Chromium scenarios on the same Chromium 153 launch path; a specifically approved hosted test website and second-owner sign-in remain pending.
+
+The separately approved old synthetic pack was deleted successfully after a cancellation check; history/reload and unavailable old-URL checks passed at 52939ef. The fresh capture/history/ten-image ZIP workflow passed at 6e0dfb6. See CUSTOMER_READINESS.md for exact evidence and scopes.
+
+The four npm advisory entries are cleared by the upstream BiDi dependency replacement while preserving Puppeteer25.11/Chromium153 and explicitly selecting Chrome/CDP. The unsupported standalone mapperTab vendor bundle still contains an older embedded schema; it has no identified application route and is not certified. Native process isolation, hosted supported login, second-account and older-history proof, retention/account operations and physical devices remain release gates. No production application release is approved.

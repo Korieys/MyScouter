@@ -5,11 +5,12 @@ import { emitProgress } from "@/lib/progress";
 import { randomUUID } from 'node:crypto';
 import { getAdmin } from '@/lib/firebase-admin';
 import { requireUser, saveAsset, SCOUT_COLLECTION } from '@/lib/scout-server';
-import { errorResponse, publicScout, readInput, ScoutError, type ScoutRecord } from '@/lib/scout-access';
+import { errorResponse, publicScout, readInput, ScoutError, validProgressId, type ScoutRecord } from '@/lib/scout-access';
 import { publicUrl, resolvePublic } from '@/lib/public-network';
 import { startCaptureProxy } from '@/lib/capture-proxy';
 import { launchCaptureBrowser, prepareCapturePage } from '@/lib/capture-browser';
 import { workStore } from '@/lib/work-store';
+import { captureLogin, redactLoginText, signInForCapture } from '@/lib/capture-login';
 
 // Viewport configs
 const VIEWPORTS = {
@@ -94,14 +95,18 @@ export async function POST(req: NextRequest) {
         }
 
         const parsedUrl = publicUrl(url);
+        const login = captureLogin(body.login, new URL(url));
+        const progressJobId = body.jobId === undefined ? `job-${randomUUID()}` : validProgressId(body.jobId);
         const store = workStore(getAdmin().db);
         const reservation = await store.reserve(userId,'capture');
         if (reservation.cached) throw new Error('Unexpected capture reservation');
         releaseWork = () => store.release(reservation.lease);
+        const existingJob = await getAdmin().db.collection(SCOUT_COLLECTION).where('userId','==',userId).where('progressJobId','==',progressJobId).limit(1).get();
+        if (!existingJob.empty) throw new ScoutError(409, 'This scout request has already started. Open your saved scouts or start a new request.');
         await resolvePublic(parsedUrl);
 
         await getAdmin().db.collection(SCOUT_COLLECTION).doc(scoutId).create({
-            id: scoutId, userId, url, domain: parsedUrl.hostname, brandColor, devices,
+            id: scoutId, userId, url, domain: parsedUrl.hostname, brandColor, devices, progressJobId,
             status: 'capturing', pages: [], enhancedAssets: [], copy: null, textContent: '', createdAt,
         });
         recordCreated = true;
@@ -115,17 +120,22 @@ export async function POST(req: NextRequest) {
 
         checkDeadline();
         const page = await browser.newPage() as unknown as Page;
-        await prepareCapturePage(page);
+        const loginControls = await prepareCapturePage(page, login);
 
         await emitProgress(scoutId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
 
         // Navigate to the target URL
-        const navigation = await page.goto(parsedUrl.href, { waitUntil: "networkidle2" });
-        if (!navigation?.ok()) throw new ScoutError(422, 'This website could not be read. Try another public page.');
+        if (login) {
+            await emitProgress(scoutId, 'login', 'Signing in to the selected website...', 17);
+            await signInForCapture(page, login, parsedUrl, loginControls);
+        } else {
+            const navigation = await page.goto(parsedUrl.href, { waitUntil: "networkidle2" });
+            if (!navigation?.ok()) throw new ScoutError(422, 'This website could not be read. Try another public page.');
+        }
 
         // Dismiss cookie banners
         await emitProgress(scoutId, "cookies", "Dismissing cookie banners...", 20);
-        await dismissCookieBanners(page);
+        if (!login) await dismissCookieBanners(page);
 
         // Wait for page to settle after cookie dismissal and styles/fonts to load
         await page.evaluateHandle('document.fonts.ready');
@@ -133,7 +143,7 @@ export async function POST(req: NextRequest) {
 
         // Extract text content for copy generation
         await emitProgress(scoutId, "text", "Reading site content...", 25);
-        const textContent = await page.evaluate(() => {
+        let textContent = await page.evaluate(() => {
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
             const texts: string[] = [];
             let node;
@@ -146,7 +156,11 @@ export async function POST(req: NextRequest) {
             return texts.slice(0, 100).join("\n");
         });
 
-        const pageTitle = await page.title();
+        let pageTitle = await page.title();
+        if (login) {
+            textContent = redactLoginText(textContent, login);
+            pageTitle = redactLoginText(pageTitle, login);
+        }
 
         // Auto-detect brand color from screenshot
         let detectedColor = brandColor;
@@ -157,9 +171,11 @@ export async function POST(req: NextRequest) {
 
         // Discover navigation links (1 level deep)
         await emitProgress(scoutId, "links", "Discovering pages...", 30);
-        const navLinks = await page.evaluate((baseUrl: string) => {
+        // A signed-in scout captures only the requested page: guessing account
+        // links can trigger actions even when their HTTP method is GET.
+        const navLinks = login ? [] : await page.evaluate((baseUrl: string) => {
             const links: string[] = [];
-            const anchors = document.querySelectorAll("nav a, header a, [role='navigation'] a");
+            const anchors = document.querySelectorAll("nav a, header a, aside a, [role='navigation'] a, [role='menu'] a");
             const seen = new Set<string>();
 
             anchors.forEach((a) => {

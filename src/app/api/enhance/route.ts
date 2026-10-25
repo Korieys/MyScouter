@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
 
         await store.complete(reservation.lease,ref,{enhancedAssets: enhancedAssets.map(asset => asset.path), status: 'complete'});
         releaseWork = undefined;
-        await emitProgress(scoutId, "done", "All assets ready!", 100).catch(() => {});
+        await emitProgress(scoutId, "assets", "Assets saved. Preparing field notes...", 94).catch(() => {});
 
         return NextResponse.json({
             success: true,

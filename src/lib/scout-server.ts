@@ -1,5 +1,5 @@
 import { getAdmin } from './firebase-admin';
-import { assertOwner, assetName, recordedAssets, ScoutError, storedAssetPath, validScoutId, verifiedUser, type ScoutRecord } from './scout-access';
+import { assertOwner, assetName, recordedAssets, ScoutError, storedAssetPath, validScoutId, validProgressId, verifiedUser, type ScoutRecord } from './scout-access';
 export const SCOUT_COLLECTION = 'privateScouts';
 export function createScoutAccess(services: typeof getAdmin) {
  const requestIdentities = new WeakMap<Request, Promise<string>>();
@@ -18,9 +18,15 @@ export function createScoutAccess(services: typeof getAdmin) {
     const record = assertOwner((await ref.get()).data() as ScoutRecord | undefined, uid);
     return { uid, ref, record };
  }
- return {requireUser, requireScout};
+ async function requireProgress(request: Request, id: unknown) {
+    const uid = await requireUser(request);
+    const result = await services().db.collection(SCOUT_COLLECTION)
+        .where('userId', '==', uid).where('progressJobId', '==', validProgressId(id)).limit(1).get();
+    return assertOwner(result.docs[0]?.data() as ScoutRecord | undefined, uid);
+ }
+ return {requireUser, requireScout, requireProgress};
 }
-export const {requireUser, requireScout} = createScoutAccess(getAdmin);
+export const {requireUser, requireScout, requireProgress} = createScoutAccess(getAdmin);
 export async function saveAsset(buffer: Buffer, id: string, filename: string): Promise<string> {
     if (!buffer.length || buffer.length > 20 * 1024 * 1024) throw new ScoutError(422, 'This screenshot exceeds the asset size limit.');
     await getAdmin().bucket.file(storedAssetPath(id, filename)).save(buffer, {

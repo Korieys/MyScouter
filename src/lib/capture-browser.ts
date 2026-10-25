@@ -3,6 +3,7 @@ import puppeteerCore, { type Page, type Viewport } from 'puppeteer-core';
 import chromium from '@sparticuz/chromium-min';
 import { captureBrowserArgs } from './capture-proxy';
 import { publicUrl } from './public-network';
+import type {CaptureLogin, LoginControls} from './capture-login';
 
 export async function launchCaptureBrowser(proxyUrl: string, viewport: Viewport) {
     if (process.env.NODE_ENV === 'production') {
@@ -22,7 +23,12 @@ export async function launchCaptureBrowser(proxyUrl: string, viewport: Viewport)
     });
 }
 
-export async function prepareCapturePage(page: Page) {
+export async function prepareCapturePage(page: Page, login?:CaptureLogin):Promise<LoginControls> {
+    let allowedPost:string|undefined;
+    let loginFinished=false;
+    // Native-form mode prevents site scripts from reading the supplied password,
+    // opening unguarded windows, or moving it into a different request.
+    if (login) await page.setJavaScriptEnabled(false);
     page.setDefaultNavigationTimeout(30000);
     page.setDefaultTimeout(15000);
     await page.setBypassServiceWorker(true);
@@ -31,9 +37,25 @@ export async function prepareCapturePage(page: Page) {
         if (request.isInterceptResolutionHandled()) return;
         try {
             const target = request.url();
-            if (!['GET','HEAD'].includes(request.method())) throw new Error('Read-only capture');
+            if (login) {
+                const destination=new URL(target);
+                if (destination.origin!==new URL(login.url).origin) throw new Error('Sign-in origin boundary');
+                const decoded=decodeURIComponent(destination.href);
+                if ([login.username,login.password].some(secret=>decoded.includes(secret))) throw new Error('Credentials cannot enter URLs');
+            }
+            if (!['GET','HEAD'].includes(request.method())) {
+                if (!login || loginFinished || request.method()!=='POST' || target!==allowedPost || !request.isNavigationRequest() || request.frame()!==page.mainFrame()) throw new Error('Read-only capture');
+                allowedPost=undefined;
+            }
             if (!target.startsWith('data:') && !target.startsWith('blob:')) publicUrl(target);
-            void request.continue().catch(() => {});
-        } catch { void request.abort('blockedbyclient').catch(() => {}); }
+            void request.continue({}, 0).catch(() => {});
+        } catch { void request.abort('blockedbyclient', 0).catch(() => {}); }
     });
+    return {
+        allowPost(url:string) {
+            if (!login || loginFinished || publicUrl(url).origin!==new URL(login.url).origin) throw new Error('Invalid login action');
+            allowedPost=url;
+        },
+        finishLogin() {loginFinished=true;allowedPost=undefined;},
+    };
 }

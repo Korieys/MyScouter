@@ -1,48 +1,45 @@
 "use client";
 
-import { Suspense, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import type {User} from 'firebase/auth';
 import { useAuth } from '@/lib/auth-context';
-import { authFetch, jsonResult } from '@/lib/auth-fetch';
+import { runScout, type ScoutProgress } from '@/lib/run-scout';
+import {ScoutTrail} from '@/components/scout-trail';
 import { WORK_LIMITS } from '@/lib/work-policy';
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
-
-interface ProgressEvent {
-  step: string;
-  detail: string;
-  progress: number;
-}
-
-const STEPS = [
-  { key: "init", label: "Preparing" },
-  { key: "browser", label: "Launching" },
-  { key: "navigate", label: "Navigating" },
-  { key: "cookies", label: "Clearing" },
-  { key: "text", label: "Reading" },
-  { key: "links", label: "Discovering" },
-  { key: "capture", label: "Capturing" },
-  { key: "enhance", label: "Enhancing" },
-  { key: "collage", label: "Collaging" },
-  { key: "social", label: "Sizing" },
-  { key: "copy", label: "Writing" },
-  { key: "done", label: "Done!" },
-];
 
 export default function Home() {
   return <Suspense fallback={<p>Loading scout form…</p>}><ScoutForm /></Suspense>;
 }
 
 function ScoutForm() {
+  const {user,loading}=useAuth();
+  const router=useRouter();
+  useEffect(()=>{if(!loading && !user)router.replace('/login?next=/scout');},[loading,user,router]);
+  if(loading)return <p>Loading your account…</p>;
+  if(!user)return <p><Link href="/login?next=/scout">Sign in to create and save your asset pack.</Link></p>;
+  return <AuthenticatedScoutForm key={user.uid} user={user} />;
+}
+
+function AuthenticatedScoutForm({user}:{user:User}) {
   const searchParams = useSearchParams();
   const [url, setUrl] = useState(() => (searchParams.get('url') || '').slice(0, 2048));
   const [color, setColor] = useState("#2D4A22");
   const [devices, setDevices] = useState({ desktop: true, tablet: false, mobile: false });
   const [isScouting, setIsScouting] = useState(false);
   const [autoColor, setAutoColor] = useState(false);
-  const [progress, setProgress] = useState<ProgressEvent | null>(null);
+  const [progress, setProgress] = useState<ScoutProgress | null>(null);
   const [error, setError] = useState("");
-  const {user, loading:authLoading} = useAuth();
+  const [loginMode,setLoginMode]=useState<'none'|'basic'|'advanced'>('none');
+  const [loginUrl,setLoginUrl]=useState('');
+  const [username,setUsername]=useState('');
+  const [password,setPassword]=useState('');
+  const [loginConsent,setLoginConsent]=useState(false);
+  const [aiConsent,setAiConsent]=useState(false);
+  const active=useRef<AbortController|null>(null);
+  useEffect(()=>()=>active.current?.abort(),[]);
 
 
   const handleDeviceChange = (device: keyof typeof devices) => {
@@ -57,33 +54,28 @@ function ScoutForm() {
       ? url
       : `https://${url}`;
 
+    if(active.current)return;
+    const controller=new AbortController();
+    active.current=controller;
     setIsScouting(true);
-    setError("");
-    setProgress({ step: "capture", detail: "Capturing your website. This can take up to four minutes; keep this page open.", progress: 15 });
-
+    setError('');
+    setProgress(null);
+    const selectedDevices=Object.entries(devices).filter(([,value])=>value).map(([key])=>key);
+    const login=loginMode==='none'?undefined:{mode:loginMode,url:loginUrl,username,password,consent:loginConsent,aiConsent};
+    setPassword('');
     try {
-      const selectedDevices = Object.entries(devices).filter(([,v]) => v).map(([key]) => key);
-      const scoutData = await jsonResult(await authFetch(user, '/api/scout', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({url:formattedUrl, brandColor:color, devices:selectedDevices.length ? selectedDevices : ['desktop'], autoDetectColor:autoColor}),
-      }));
-      setProgress({step:'enhance',detail:'Capture saved. Creating mockups...',progress:72});
-      // Each stage persists its result. If optional work fails, the captured pack can still reopen.
-      try {
-        await jsonResult(await authFetch(user,'/api/enhance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scoutId:scoutData.id})}));
-      } catch { /* The preview exposes a retry for unfinished enhancements. */ }
-      setProgress({step:'copy',detail:'Writing a draft from the captured website...',progress:95});
-      try {
-        await jsonResult(await authFetch(user,'/api/copy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scoutId:scoutData.id})}));
-      } catch { /* Copy is optional; the preview states when it is missing. */ }
-      window.location.href = '/preview/' + scoutData.id;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'The capture could not finish. Please try again.');
+      const id=await runScout(user,{url:formattedUrl,brandColor:color,devices:selectedDevices.length?selectedDevices:['desktop'],autoDetectColor:autoColor,login},setProgress,controller.signal);
+      controller.signal.throwIfAborted();
+      window.location.href='/preview/'+id;
+      // Keep the form disabled until navigation; no second request can race it.
+    } catch(err) {
+      if(controller.signal.aborted)return;
+      setError(err instanceof Error?err.message:'The capture could not finish. Please try again.');
       setProgress(null);
-    } finally {setIsScouting(false);}
+      setIsScouting(false);
+      active.current=null;
+    }
   };
-
-  const currentStepIndex = STEPS.findIndex((s) => s.key === progress?.step);
 
   return (
     <div style={{ padding: "3rem 2rem", maxWidth: "880px", margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -98,7 +90,7 @@ function ScoutForm() {
             New Scout
           </h2>
           <p style={{ fontSize: "1.05rem", color: "var(--rope)" }}>
-            Capture a public website you own or have permission to use. Long pages are limited to the first 12,000 pixels.
+            Capture a website you own or have permission to use. Long pages are limited to the first 12,000 pixels.
           </p>
         </div>
 
@@ -111,6 +103,28 @@ function ScoutForm() {
               <label htmlFor="scout-url" className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Website URL</label>
               <input id="scout-url" type="text" placeholder="example.com" required className="input-scout" value={url} onChange={(e) => setUrl(e.target.value)} disabled={isScouting} />
             </div>
+
+            <fieldset disabled={isScouting} style={{border:0,padding:0,display:'grid',gap:'0.75rem'}}>
+              <legend className="label-scout">Website sign-in</legend>
+              <label htmlFor="login-mode">Capture access</label>
+              <select id="login-mode" className="input-scout" value={loginMode} onChange={e=>{setLoginMode(e.target.value as typeof loginMode);setPassword('');setLoginConsent(false);setAiConsent(false);}}>
+                <option value="none">Public page — no sign-in</option>
+                <option value="basic">Basic sign-in</option>
+                <option value="advanced">AI-assisted field selection</option>
+              </select>
+              {loginMode!=='none' && <>
+                <label htmlFor="login-url">Sign-in page URL</label>
+                <input id="login-url" type="url" required className="input-scout" placeholder="https://example.com/login" value={loginUrl} onChange={e=>setLoginUrl(e.target.value)} maxLength={2048}/>
+                <label htmlFor="site-username">Website username or email</label>
+                <input id="site-username" required className="input-scout" autoComplete="off" value={username} onChange={e=>setUsername(e.target.value)} maxLength={256}/>
+                <label htmlFor="site-password">Website password</label>
+                <input id="site-password" type="password" required className="input-scout" autoComplete="off" value={password} onChange={e=>setPassword(e.target.value)} maxLength={1024}/>
+                <p style={{fontSize:'0.85rem'}}>Use a dedicated account with permission to capture this website. Sign-in supports native forms on the same HTTPS website, without query strings. Scripts, third-party sign-in, verification codes and CAPTCHA are unsupported. Signed-in scouts capture only the requested page, and external styles or images may be unavailable.</p>
+                <p style={{fontSize:'0.85rem'}}>Credentials are used temporarily to sign in and are not sent to AI or saved as account details. Screenshots are saved privately; readable captured page text is sent to OpenAI for draft copy. Avoid pages containing sensitive information.</p>
+                <label><input type="checkbox" required checked={loginConsent} onChange={e=>setLoginConsent(e.target.checked)}/> I have permission to sign in and capture this page, and agree to the captured text processing described above.</label>
+                {loginMode==='advanced' && <label><input type="checkbox" required checked={aiConsent} onChange={e=>setAiConsent(e.target.checked)}/> I agree to send bounded, redacted field labels to OpenAI to identify the sign-in fields. My username and password are inserted locally after field selection.</label>}
+              </>}
+            </fieldset>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
               <div>
@@ -156,38 +170,12 @@ function ScoutForm() {
 
             <hr className="rope-divider" style={{ margin: "0.5rem 0" }} />
 
-            {/* Progress Bar */}
-            {isScouting && progress && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                <div className="progress-bar-track">
-                  <div className="progress-bar-fill" style={{ width: `${Math.max(progress.progress, 3)}%` }} />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--forest)" }}>
-                    {progress.detail}
-                  </span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--rope)" }}>
-                    {progress.progress}%
-                  </span>
-                </div>
-                {/* Step indicators */}
-                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                  {STEPS.slice(0, -1).map((step, i) => (
-                    <div key={step.key} style={{
-                      width: "8px", height: "8px", borderRadius: "50%",
-                      background: i <= currentStepIndex ? "var(--forest)" : "var(--khaki)",
-                      transition: "background 0.3s",
-                    }} title={step.label} />
-                  ))}
-                </div>
-              </div>
-            )}
+            {isScouting && progress && <ScoutTrail step={progress.step} detail={progress.detail} progress={progress.progress} domain={url.replace(/^https?:\/\//,'').split('/')[0]} />}
 
-            <button type="submit" className="btn-campfire" style={{ width: "100%", padding: "16px", fontSize: "1rem" }} disabled={isScouting || authLoading || !user}>
+            <button type="submit" className="btn-campfire" style={{ width: "100%", padding: "16px", fontSize: "1rem" }} disabled={isScouting}>
               {isScouting ? (progress?.detail || "Scout is on the trail...") : "Send Scout"}
             </button>
 
-            {!authLoading && !user && <p><Link href="/login?next=/scout">Sign in to create and save your asset pack.</Link></p>}
             <p style={{fontSize:'0.85rem',color:'var(--rope)'}}>Your captures are saved privately to your account in Google Cloud. Readable website text is sent to OpenAI to prepare draft copy. Review the images and text before publishing.</p>
             <p style={{fontSize:'0.85rem',color:'var(--rope)'}}>Preview allowance: {WORK_LIMITS.capture.accountDaily} capture attempts per day, with one capture running at a time. Mockup and copy retries each allow {WORK_LIMITS.copy.accountDaily} attempts. Limits reset at midnight UTC; failed attempts count.</p>
             {error && (

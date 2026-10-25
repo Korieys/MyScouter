@@ -33,6 +33,8 @@ jobs:
           NODE_ENV: production
       - name: Verify native browser ZIP and image downloads
         run: npm run test:browser-download
+      - name: Verify login with fictional browser fixtures
+        run: npm run test:browser-login
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # reviewed v4
         with:
           distribution: temurin

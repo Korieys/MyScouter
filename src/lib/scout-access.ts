@@ -12,7 +12,12 @@ export interface ScoutRecord {
     enhancedAssets: string[]; copy: ScoutCopy | null; createdAt: string;
     status: 'capturing' | 'captured' | 'complete' | 'failed' | 'deleting';
     deletionStartedAt?: string;
+    progressJobId?: string;
     progress?: { step: string; detail: string; progress: number; timestamp: number };
+}
+export function validProgressId(value: unknown): string {
+    if (typeof value !== 'string' || !/^job-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value)) throw new ScoutError(400, 'Invalid progress request.');
+    return value;
 }
 export function validScoutId(value: unknown): string {
     if (typeof value !== 'string' || !/^scout-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value)) throw new ScoutError(404, 'This scout is unavailable. Sign in to its owner account or create a new scout.');

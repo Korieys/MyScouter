@@ -11,6 +11,7 @@ import {WORK_LIMITS} from '../../src/lib/work-policy.ts';
 import {readScoutHistory} from '../../src/lib/scout-history.ts';
 import {removeScout} from '../../src/lib/scout-deletion.ts';
 import {assertOwner} from '../../src/lib/scout-access.ts';
+import {createScoutAccess} from '../../src/lib/scout-server.ts';
 
 const projectId='demo-myscouter-readiness';
 if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8187')throw Error('These tests require the disposable local demo emulator on 8187.');
@@ -27,6 +28,23 @@ beforeEach(async()=>{
  await db.recursiveDelete(db.collection(LIMIT_COLLECTION));
 });
 after(async()=>{await db.terminate();await deleteApp(app);});
+
+test('early progress correlation preserves server IDs and rejects other owners and deleted packs',async()=>{
+ const owner=randomUUID(),other=randomUUID(),job='job-'+randomUUID(),ref=await scout(owner);
+ await ref.update({progressJobId:job,progress:{step:'capture',detail:'Fictional progress',progress:35,timestamp:1}});
+ const access=createScoutAccess(()=>({db,auth:{verifyIdToken:async token=>({uid:token})}}));
+ const request=uid=>new Request('https://app.example/api/scout/progress',{headers:{Authorization:'Bearer '+uid}});
+ assert.equal((await access.requireProgress(request(owner),job)).id,ref.id);
+ assert.notEqual(ref.id,job);
+ await assert.rejects(access.requireProgress(request(other),job),{status:404});
+ await assert.rejects(access.requireProgress(request(owner),'job-'+randomUUID()),{status:404});
+ await assert.rejects(access.requireProgress(request(owner),'job-arbitrary'),{status:400});
+ const reserved=await workStore(db).reserve(owner,'capture');
+ await workStore(db).complete(reserved.lease,ref,{status:'captured'});
+ assert.equal((await access.requireProgress(request(owner),job)).progressJobId,job);
+ await ref.update({status:'deleting'});
+ await assert.rejects(access.requireProgress(request(owner),job),{status:404});
+});
 
 test('simultaneous capture requests reserve only one per account across store instances',async()=>{
  const uid=randomUUID(),a=workStore(db),b=workStore(db);

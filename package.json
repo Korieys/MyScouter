@@ -9,12 +9,7 @@
     "@firebase/firestore": {
       "@grpc/grpc-js": "1.14.6"
     },
-    "puppeteer-core": {
-      "chromium-bidi": "157.0.8090-0"
-    },
-    "puppeteer": {
-      "chromium-bidi": "157.0.8090-0"
-    }
+    "chromium-bidi": "157.0.8090-0"
   },
   "engines": {
     "node": "24.x"

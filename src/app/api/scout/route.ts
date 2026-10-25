@@ -3,7 +3,7 @@ import puppeteerDev from "puppeteer";
 import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
 import chromium from "@sparticuz/chromium-min";
 import sharp from "sharp";
-import { emitProgress } from "@/lib/progress";
+import { emitProgress, resolveJobId } from "@/lib/progress";
 import { db } from "@/lib/firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { adminStorage } from "@/lib/firebase-admin";
@@ -46,6 +46,7 @@ interface ScoutRequest {
     devices?: string[];
     autoDetectColor?: boolean;
     userId?: string;
+    jobId?: string;
 }
 
 interface Screenshot {
@@ -67,9 +68,11 @@ export const maxDuration = 300;
 export async function POST(req: NextRequest) {
     let browser: Browser | null = null;
     const scoutId = `scout-${Date.now()}`;
+    let jobId = scoutId;
 
     try {
         const body: ScoutRequest = await req.json();
+        jobId = resolveJobId(body.jobId, scoutId);
         const { url, brandColor = "#2D4A22", devices = ["desktop"], autoDetectColor = false, userId = "anonymous" } = body;
 
         if (!url) {
@@ -87,9 +90,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
         }
 
-        emitProgress(scoutId, "init", "Preparing scout...", 5);
+        emitProgress(jobId, "init", "Preparing scout...", 5);
 
-        emitProgress(scoutId, "browser", "Launching scout browser...", 10);
+        emitProgress(jobId, "browser", "Launching scout browser...", 10);
 
         // Launch browser
         if (process.env.NODE_ENV === "production") {
@@ -120,13 +123,13 @@ export async function POST(req: NextRequest) {
         page.setDefaultNavigationTimeout(30000);
         page.setDefaultTimeout(15000);
 
-        emitProgress(scoutId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
+        emitProgress(jobId, "navigate", `Navigating to ${parsedUrl.hostname}...`, 15);
 
         // Navigate to the target URL
         await page.goto(url, { waitUntil: "networkidle2" });
 
         // Dismiss cookie banners
-        emitProgress(scoutId, "cookies", "Dismissing cookie banners...", 20);
+        emitProgress(jobId, "cookies", "Dismissing cookie banners...", 20);
         await dismissCookieBanners(page);
 
         // Wait for page to settle after cookie dismissal and styles/fonts to load
@@ -134,7 +137,7 @@ export async function POST(req: NextRequest) {
         await page.evaluate(() => new Promise((r) => setTimeout(r, 2000)));
 
         // Extract text content for copy generation
-        emitProgress(scoutId, "text", "Reading site content...", 25);
+        emitProgress(jobId, "text", "Reading site content...", 25);
         const textContent = await page.evaluate(() => {
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
             const texts: string[] = [];
@@ -153,12 +156,12 @@ export async function POST(req: NextRequest) {
         // Auto-detect brand color from screenshot
         let detectedColor = brandColor;
         if (autoDetectColor) {
-            emitProgress(scoutId, "color", "Detecting brand color...", 28);
+            emitProgress(jobId, "color", "Detecting brand color...", 28);
             detectedColor = await detectBrandColor(page, brandColor);
         }
 
         // Discover navigation links (1 level deep)
-        emitProgress(scoutId, "links", "Discovering pages...", 30);
+        emitProgress(jobId, "links", "Discovering pages...", 30);
         const navLinks = await page.evaluate((baseUrl: string) => {
             const links: string[] = [];
             const anchors = document.querySelectorAll("nav a, header a, [role='navigation'] a");
@@ -188,7 +191,7 @@ export async function POST(req: NextRequest) {
         }, url);
 
         // Capture homepage screenshots
-        emitProgress(scoutId, "capture", "Capturing homepage...", 35);
+        emitProgress(jobId, "capture", "Capturing homepage...", 35);
         const allPages: PageCapture[] = [];
         const homepageCapture = await capturePageScreenshots(page, url, pageTitle, devices, scoutId, "home");
         allPages.push(homepageCapture);
@@ -197,7 +200,7 @@ export async function POST(req: NextRequest) {
         const totalPages = Math.min(navLinks.length, 5);
         for (let i = 0; i < totalPages; i++) {
             const pct = 40 + Math.round((i / totalPages) * 25);
-            emitProgress(scoutId, "capture", `Scouting page ${i + 2} of ${totalPages + 1}...`, pct);
+            emitProgress(jobId, "capture", `Scouting page ${i + 2} of ${totalPages + 1}...`, pct);
             try {
                 await page.goto(navLinks[i], { waitUntil: "networkidle2" });
                 await dismissCookieBanners(page);
@@ -213,7 +216,7 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        emitProgress(scoutId, "saving", "Saving scout results...", 68);
+        emitProgress(jobId, "saving", "Saving scout results...", 68);
 
         // Save to Firestore
         const scoutRecord = {
@@ -242,7 +245,7 @@ export async function POST(req: NextRequest) {
             // Non-fatal — continue even if Firestore save fails
         }
 
-        emitProgress(scoutId, "complete", "Scout complete! Enhancing assets...", 70);
+        emitProgress(jobId, "complete", "Scout complete! Enhancing assets...", 70);
 
         return NextResponse.json({
             id: scoutId,
@@ -254,7 +257,7 @@ export async function POST(req: NextRequest) {
         });
     } catch (error) {
         console.error("Scout error:", error);
-        emitProgress(scoutId, "error", error instanceof Error ? error.message : "Scout failed", -1);
+        emitProgress(jobId, "error", error instanceof Error ? error.message : "Scout failed", -1);
         return NextResponse.json(
             { error: error instanceof Error ? error.message : "Scout failed" },
             { status: 500 }

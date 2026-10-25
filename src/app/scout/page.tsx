@@ -3,27 +3,13 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
+import { ScoutTrail } from "@/components/scout-trail";
 
 interface ProgressEvent {
   step: string;
   detail: string;
   progress: number;
 }
-
-const STEPS = [
-  { key: "init", label: "Preparing" },
-  { key: "browser", label: "Launching" },
-  { key: "navigate", label: "Navigating" },
-  { key: "cookies", label: "Clearing" },
-  { key: "text", label: "Reading" },
-  { key: "links", label: "Discovering" },
-  { key: "capture", label: "Capturing" },
-  { key: "enhance", label: "Enhancing" },
-  { key: "collage", label: "Collaging" },
-  { key: "social", label: "Sizing" },
-  { key: "copy", label: "Writing" },
-  { key: "done", label: "Done!" },
-];
 
 export default function Home() {
   const [url, setUrl] = useState("");
@@ -57,6 +43,22 @@ export default function Home() {
     setError("");
     setProgress({ step: "init", detail: "Starting scout...", progress: 0 });
 
+    // Progress only ever moves forward; the client's own milestones and the server's
+    // stream can arrive out of order. The client announces "done" itself after copy.
+    const advance = (event: ProgressEvent) =>
+      setProgress((prev) => (prev && event.progress < prev.progress ? prev : event));
+
+    // Open the progress stream before scouting so the long capture phase is visible.
+    const jobId = `job-${crypto.randomUUID()}`;
+    const es = new EventSource(`/api/scout/progress?jobId=${jobId}`);
+    eventSourceRef.current = es;
+    es.onmessage = (e) => {
+      try {
+        const event: ProgressEvent = JSON.parse(e.data);
+        if (event.step !== "done" && event.progress >= 0) advance(event);
+      } catch { /* ignore */ }
+    };
+
     try {
       // Step 1: Scout
       const selectedDevices = Object.entries(devices).filter(([, v]) => v).map(([k]) => k);
@@ -69,6 +71,7 @@ export default function Home() {
           brandColor: color,
           devices: selectedDevices.length ? selectedDevices : ["desktop"],
           autoDetectColor: autoColor,
+          jobId,
         }),
       });
 
@@ -79,24 +82,15 @@ export default function Home() {
 
       const scoutData = await scoutRes.json();
 
-      // Connect to SSE for enhance progress
-      const es = new EventSource(`/api/scout/progress?jobId=${scoutData.id}`);
-      eventSourceRef.current = es;
-      es.onmessage = (e) => {
-        try {
-          const event: ProgressEvent = JSON.parse(e.data);
-          setProgress(event);
-        } catch { /* ignore */ }
-      };
-
       // Step 2: Enhance
-      setProgress({ step: "enhance", detail: "Enhancing screenshots...", progress: 72 });
+      advance({ step: "enhance", detail: "Enhancing screenshots...", progress: 72 });
 
       const enhanceRes = await fetch("/api/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scoutId: scoutData.id,
+          jobId,
           brandColor: scoutData.brandColor,
           pages: scoutData.pages,
         }),
@@ -110,7 +104,7 @@ export default function Home() {
       const enhanceData = await enhanceRes.json();
 
       // Step 3: AI Copy
-      setProgress({ step: "copy", detail: "Writing marketing copy...", progress: 95 });
+      advance({ step: "copy", detail: "Writing marketing copy...", progress: 95 });
 
       let copyData = null;
       try {
@@ -140,27 +134,26 @@ export default function Home() {
       localStorage.setItem("myscouter-latest", JSON.stringify(result));
       localStorage.setItem(`myscouter-${scoutData.id}`, JSON.stringify(result));
 
-      setProgress({ step: "done", detail: "Scout complete!", progress: 100 });
+      setProgress({ step: "done", detail: "Scout complete! Heading back to camp...", progress: 100 });
 
       es.close();
       eventSourceRef.current = null;
 
-      // Navigate after a brief moment to see "Done!"
+      // Navigate after a brief moment so the summit celebration is visible
       setTimeout(() => {
         window.location.href = `/preview/${scoutData.id}`;
-      }, 800);
+      }, 1400);
 
     } catch (err) {
       console.error("Scout pipeline error:", err);
       setError(err instanceof Error ? err.message : "Something went wrong");
       setProgress(null);
-      eventSourceRef.current?.close();
-    } finally {
       setIsScouting(false);
+      eventSourceRef.current?.close();
     }
   };
 
-  const currentStepIndex = STEPS.findIndex((s) => s.key === progress?.step);
+  const domain = url.replace(/^https?:\/\//, "").split("/")[0];
 
   return (
     <div style={{ padding: "3rem 2rem", maxWidth: "880px", margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -233,35 +226,12 @@ export default function Home() {
 
             <hr className="rope-divider" style={{ margin: "0.5rem 0" }} />
 
-            {/* Progress Bar */}
-            {isScouting && progress && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                <div className="progress-bar-track">
-                  <div className="progress-bar-fill" style={{ width: `${Math.max(progress.progress, 3)}%` }} />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--forest)" }}>
-                    {progress.detail}
-                  </span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--rope)" }}>
-                    {progress.progress}%
-                  </span>
-                </div>
-                {/* Step indicators */}
-                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                  {STEPS.slice(0, -1).map((step, i) => (
-                    <div key={step.key} style={{
-                      width: "8px", height: "8px", borderRadius: "50%",
-                      background: i <= currentStepIndex ? "var(--forest)" : "var(--khaki)",
-                      transition: "background 0.3s",
-                    }} title={step.label} />
-                  ))}
-                </div>
-              </div>
+            {progress && (
+              <ScoutTrail step={progress.step} detail={progress.detail} progress={progress.progress} domain={domain} />
             )}
 
             <button type="submit" className="btn-campfire" style={{ width: "100%", padding: "16px", fontSize: "1rem" }} disabled={isScouting}>
-              {isScouting ? (progress?.detail || "Scout is on the trail...") : "Send Scout"}
+              {isScouting ? "Scout is on the trail..." : "Send Scout"}
             </button>
 
             {error && (

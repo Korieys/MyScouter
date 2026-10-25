@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
-import { emitProgress } from "@/lib/progress";
+import { emitProgress, resolveJobId } from "@/lib/progress";
 import { adminStorage } from "@/lib/firebase-admin";
 
 interface EnhanceRequest {
     scoutId: string;
+    jobId?: string;
     brandColor: string;
     pages: {
         url: string;
@@ -23,12 +24,13 @@ export async function POST(req: NextRequest) {
     try {
         const body: EnhanceRequest = await req.json();
         const { scoutId, brandColor, pages } = body;
+        const jobId = resolveJobId(body.jobId, scoutId);
 
         const enhancedAssets: { path: string, type: string }[] = [];
         let step = 0;
         const totalSteps = pages.flatMap((p) => p.screenshots.filter((s) => s.type === "hero")).length * 2 + 4;
 
-        emitProgress(scoutId, "enhance", "Enhancing screenshots...", 72);
+        emitProgress(jobId, "enhance", "Enhancing screenshots...", 72);
 
         // Process each page's screenshots
         for (const page of pages) {
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
 
                 if (shot.type === "hero") {
                     step++;
-                    emitProgress(scoutId, "enhance", `Enhancing hero ${step}...`, 72 + Math.round((step / totalSteps) * 15));
+                    emitProgress(jobId, "enhance", `Enhancing hero ${step}...`, 72 + Math.round((step / totalSteps) * 15));
 
                     // Download the source image buffer from Firebase Storage URL
                     const response = await fetch(shot.path);
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Grid collages
-        emitProgress(scoutId, "collage", "Building grid collages...", 88);
+        emitProgress(jobId, "collage", "Building grid collages...", 88);
 
         const featureShots = pages
             .flatMap((p) => p.screenshots)
@@ -107,7 +109,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Social images
-        emitProgress(scoutId, "social", "Generating social assets...", 92);
+        emitProgress(jobId, "social", "Generating social assets...", 92);
 
         const heroShot = pages[0]?.screenshots.find((s) => s.type === "hero" && s.viewport === "desktop");
         if (heroShot && heroShot.path) {
@@ -127,7 +129,7 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        emitProgress(scoutId, "done", "All assets ready!", 100);
+        emitProgress(jobId, "done", "All assets ready!", 100);
 
         return NextResponse.json({
             success: true,

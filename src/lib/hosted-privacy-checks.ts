@@ -67,6 +67,9 @@ export async function checkHostedPrivacy(user:User,values:string[],ownerControlI
  if(ownerControlId) {
   if(!await step('Own fictional pack metadata','/api/scouts/'+ownerControlId,{},200,'owner'))return finish();
   if(!await step('Own fictional image','/api/assets/'+ownerControlId+'/home-desktop-hero.png',{},200,'image'))return finish();
+  const cached={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scoutId:ownerControlId})};
+  if(!await step('Own saved enhancement retry','/api/enhance',cached,200))return finish();
+  if(!await step('Own saved copy retry','/api/copy',cached,200))return finish();
  }
  return finish();
 }

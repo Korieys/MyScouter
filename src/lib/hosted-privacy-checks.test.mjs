@@ -12,6 +12,7 @@ function fixture(calls) {
   if(path.startsWith('/api/scouts?'))return Response.json({error:'Invalid history position'},{status:400});
   if(path==='/api/scouts')return Response.json({scouts:[{id:own}]});
   if(path==='/api/scouts/'+own)return Response.json({id:own});
+  if(['/api/enhance','/api/copy'].includes(path)&&JSON.parse(options.body).scoutId===own)return Response.json({success:true});
   if(path==='/api/assets/'+own+'/home-desktop-hero.png')return new Response('fictional PNG',{headers:{'Content-Type':'image/png','x-download-sha256':'a'.repeat(64)}});
   return Response.json({error:'This scout is unavailable for your account.'},{status:404});
  };
@@ -20,8 +21,8 @@ const user={uid,getIdToken:async()=>token};
 test('privacy probe exercises actual protected paths with bounded IDs and exports no session or page content',async()=>{
  const calls=[];globalThis.fetch=fixture(calls);
  const report=await checkHostedPrivacy(user,ids,own,new AbortController().signal,()=>true);
- assert.equal(report.passed,true);assert.equal(report.checks.length,24);
- assert.equal(calls.length,24);assert.equal(report.accountScopeHash.length,64);
+ assert.equal(report.passed,true);assert.equal(report.checks.length,26);
+ assert.equal(calls.length,26);assert.equal(report.accountScopeHash.length,64);
  const body=JSON.stringify(report);assert.equal(body.includes(token),false);assert.equal(body.includes(uid),false);assert.equal(body.includes('fictional PNG'),false);
  assert.deepEqual(report.checks.filter(c=>c.name.includes('First-account')).map(c=>c.status),Array(15).fill(404));
  assert.ok(calls.filter(c=>c.path==='/api/bundle').some(c=>c.header==='Bearer '+token));

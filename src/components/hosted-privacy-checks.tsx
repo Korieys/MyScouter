@@ -19,7 +19,7 @@ export function HostedPrivacyChecks({user,current}:{user:User;current:()=>boolea
  const save=()=>{
   if(!report||!current())return;
   const blob=new Blob([JSON.stringify(report,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-  try{link.href=url;link.download='myscouter-hosted-privacy-report.json';document.body.appendChild(link);link.click();}
+  try{link.href=url;link.download='myscouter-privacy-'+report.checks.length+'-'+Date.now()+'.json';document.body.appendChild(link);link.click();}
   finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
  };
  return <section aria-label="Hosted privacy verification" className="patch-card" style={{padding:'1.5rem',maxWidth:'960px',margin:'0 auto'}}>
@@ -38,6 +38,7 @@ export function HostedPrivacyChecks({user,current}:{user:User;current:()=>boolea
    <p>The report contains status codes and a hashed account scope, without tokens or captured page content.</p>
    <div style={{overflowX:'auto'}}><table><thead><tr><th>Check</th><th>HTTP</th><th>Expected</th><th>Result</th></tr></thead><tbody>{report.checks.map(check=><tr key={check.name}><td>{check.name}</td><td>{check.status}</td><td>{check.expected}</td><td>{check.passed?'Pass':'FAIL'}</td></tr>)}</tbody></table></div>
    <button className="btn-outline" onClick={save}>Save verification report</button>
+   <details><summary>View sanitized JSON</summary><pre aria-label="Sanitized privacy report" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{JSON.stringify(report,null,2)}</pre></details>
   </div>}
  </section>;
 }

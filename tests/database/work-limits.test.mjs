@@ -362,3 +362,38 @@ test('an approved retention plan cannot delete a pack updated after inspection',
  await assert.rejects(removeScout(db,bucket,uid,ref.id,version),{status:409});
  assert.equal((await ref.get()).data().status,'captured');
 });
+
+import {HISTORY_FIXTURE,applyHistoryFixture,fixtureRecords} from '../../src/lib/history-fixture.ts';
+const pagingPlan=uid=>({...HISTORY_FIXTURE,projectId,group:'paging-fixture-'+randomUUID(),ownerScopeHash:createHash('sha256').update(uid).digest('hex'),scoutIds:Array.from({length:45},()=> 'scout-'+randomUUID())});
+test('approved metadata fixture yields three private history pages, is idempotent and cleans only its fixed rows',async()=>{
+ const uid=randomUUID(),other=randomUUID(),plan=pagingPlan(uid),neighbor=await scout(uid),foreign=await scout(other);
+ const original=(await neighbor.get()).data(),otherOriginal=(await foreign.get()).data();
+ await assert.rejects(applyHistoryFixture(db,other,'seed',plan),{status:403});
+ assert.equal((await applyHistoryFixture(db,uid,'seed',plan)).created,true);
+ assert.equal((await applyHistoryFixture(db,uid,'seed',plan)).created,false);
+ const ids=[];let cursor=null,counts=[];
+ do{const page=await readScoutHistory(db,uid,cursor);counts.push(page.scouts.length);ids.push(...page.scouts.map(item=>item.id));assert.ok(page.scouts.every(item=>!('textContent'in item)));cursor=page.nextCursor;}while(cursor);
+ assert.deepEqual(counts,[20,20,6]);assert.equal(new Set(ids).size,46);
+ assert.ok(plan.scoutIds.every(id=>ids.includes(id)));assert.ok(!ids.includes(foreign.id));
+ assert.equal((await applyHistoryFixture(db,uid,'remove',plan)).removed,45);
+ assert.equal((await applyHistoryFixture(db,uid,'remove',plan)).removed,0);
+ assert.deepEqual((await neighbor.get()).data(),original);assert.deepEqual((await foreign.get()).data(),otherOriginal);
+ await assert.rejects(applyHistoryFixture(db,uid,'seed',plan),{status:410});
+});
+test('paging fixture ID collision refuses the entire seed and preserves the existing record',async()=>{
+ const uid=randomUUID(),plan=pagingPlan(uid),collision=db.collection('privateScouts').doc(plan.scoutIds[0]),existing=owned(randomUUID(),collision.id);
+ await collision.create(existing);
+ await assert.rejects(applyHistoryFixture(db,uid,'seed',plan),{status:409});
+ assert.deepEqual((await collision.get()).data(),existing);
+ const snapshots=await db.getAll(...plan.scoutIds.map(id=>db.collection('privateScouts').doc(id)));
+ assert.equal(snapshots.filter(snapshot=>snapshot.exists).length,1);
+});
+test('paging fixture cleanup refuses any changed row before deleting others, then resumes after exact restoration',async()=>{
+ const uid=randomUUID(),plan=pagingPlan(uid);await applyHistoryFixture(db,uid,'seed',plan);
+ const changed=db.collection('privateScouts').doc(plan.scoutIds[0]);await changed.update({textContent:'A subsequent fictional edit'});
+ await assert.rejects(applyHistoryFixture(db,uid,'remove',plan),{status:409});
+ const snapshots=await db.getAll(...plan.scoutIds.map(id=>db.collection('privateScouts').doc(id)));
+ assert.ok(snapshots.every(snapshot=>snapshot.exists));assert.equal((await changed.get()).data().textContent,'A subsequent fictional edit');
+ await changed.set(fixtureRecords(uid,plan)[0]);
+ assert.equal((await applyHistoryFixture(db,uid,'remove',plan)).removed,45);
+});

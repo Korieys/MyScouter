@@ -11,7 +11,7 @@ const login={mode:'basic',url:origin+'/login',username:'fictional-owner@example.
 const form=(extra='',action='/session',method='post')=>`<!doctype html><form method="${method}" action="${action}"><label>Username<input name="username" autocomplete="username"></label><label>Password<input name="password" type="password"></label><button type="submit">Sign in</button>${extra}</form>`;
 
 test('real browser verifies bounded native login using only synthetic responses and credentials',{timeout:180000},async t=>{
- const browser=process.platform==='linux'?await core.launch({executablePath:await chromium.executablePath('https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar'),args:chromium.args,headless:'shell',pipe:true}):await puppeteer.launch({channel:'chrome',headless:true,pipe:true});
+ const browser=process.platform==='linux'?await core.launch({executablePath:await chromium.executablePath('https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar'),args:chromium.args,headless:'shell',pipe:true,protocolTimeout:15000}):await puppeteer.launch({channel:'chrome',headless:true,pipe:true,protocolTimeout:15000});
  const fixture=async(html,options={})=>{
   // Serverless Chromium supports its default context (the application's model).
   // This entire browser is disposable; clear only its fictional fixture cookies.
@@ -43,18 +43,23 @@ test('real browser verifies bounded native login using only synthetic responses 
  };
  try {
   await t.test('basic login posts credentials once, redacts captured content, then blocks writes and outside origins',async()=>{
+   console.info('Basic fixture: opening a disposable page');
    const f=await fixture(form('<script>window.stolePassword=true;window.open("https://outside.example.com/")</script>'));
    try {
+    console.info('Basic fixture: inspecting eligible fields');
     await f.page.goto(login.url);
     assert.deepEqual((await inspectLoginFields(f.page,f.credentials)).map(field=>field.kind),['username','password','submit']);
+    console.info('Basic fixture: signing in');
     await signInForCapture(f.page,f.credentials,new URL(origin+'/account'),f.controls);
     assert.equal(f.posts.length,1);assert.equal(f.posts[0].body.get('username'),login.username);assert.equal(f.posts[0].body.get('password'),login.password);
     const text=await f.page.$eval('body',element=>element.innerText);assert.ok(text.includes('Fictional customer page'));assert.ok(!text.includes(login.password));assert.ok(!text.includes(login.username));
     assert.equal(await f.page.evaluate(()=>window.stolePassword),undefined);
-    await f.page.evaluate(()=>{const form=document.createElement('form');form.method='post';form.action='/delete';document.body.append(form);form.submit();});
-    await f.page.waitForRequest(request=>request.url().endsWith('/delete'),{timeout:1000}).catch(()=>{});
+    console.info('Basic fixture: checking post-login write denial');
+    await Promise.all([f.page.waitForRequest(request=>request.url().endsWith('/delete'),{timeout:5000}),f.page.click('form[action="/delete"] button')]);
     assert.equal(f.posts.length,1);
-    await assert.rejects(f.page.goto('https://outside.example.com/'),/ERR_BLOCKED_BY_CLIENT/);
+    console.info('Basic fixture: checking outside-origin denial');
+    await assert.rejects(f.page.goto('https://outside.example.com/',{timeout:10000}),/ERR_BLOCKED_BY_CLIENT/);
+    console.info('Basic fixture: complete');
    } finally {await f.close();}
   });
   await t.test('AI receives redacted field metadata and can only select checked IDs',async()=>{

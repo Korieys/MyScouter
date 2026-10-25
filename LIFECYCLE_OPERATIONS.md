@@ -11,8 +11,10 @@ Account deletion requires a revocation-checked ID token, a sign-in within five
 minutes and the literal `DELETE ACCOUNT`. The route defaults to unavailable until
 an operator explicitly enables it. The accepted request transaction conflicts
 with all three account work reservations and refuses active work. A private,
-server-only tombstone then blocks every account API read, cached result and work
-reservation. Deletion cannot be canceled after acceptance.
+server-only tombstone then blocks new account API reads, cached-result requests
+and work reservations. An already authorized download may still finish, and
+already delivered bytes cannot be revoked. Deletion cannot be canceled after
+acceptance.
 
 The operator runner disables the identity and revokes refresh tokens before
 removing data. Each pass removes at most one account-owned private pack, using

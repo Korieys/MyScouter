@@ -794,3 +794,5 @@ button:disabled {
 }
 
 .preview-notice { padding: 0.7rem 1.25rem; text-align: center; font-size: 0.85rem; line-height: 1.5; color: var(--forest-deep); background: var(--khaki-light); border-bottom: 1px solid var(--forest); }
+
+.account-identity { flex-basis: 100%; min-width: 0; overflow-wrap: anywhere; margin: -0.5rem 0 0; font-size: 0.8rem; color: var(--forest-deep); }

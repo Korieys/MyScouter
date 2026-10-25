@@ -13,7 +13,12 @@ const form=(extra='',action='/session',method='post')=>`<!doctype html><form met
 test('real browser verifies bounded native login using only synthetic responses and credentials',{timeout:180000},async t=>{
  const browser=process.platform==='linux'?await core.launch({executablePath:await chromium.executablePath('https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar'),args:chromium.args,headless:'shell',pipe:true}):await puppeteer.launch({channel:'chrome',headless:true,pipe:true});
  const fixture=async(html,options={})=>{
-  const context=await browser.createBrowserContext(),page=await context.newPage();
+  // Serverless Chromium supports its default context (the application's model).
+  // This entire browser is disposable; clear only its fictional fixture cookies.
+  const context=browser.defaultBrowserContext();
+  const cookies=await context.cookies();
+  if(cookies.length)await context.deleteCookie(...cookies);
+  const page=await browser.newPage();
   const credentials={...login,mode:options.advanced?'advanced':'basic'};
   const controls=await prepareCapturePage(page,credentials),posts=[],blocked=[];
   let authenticated=false;
@@ -34,7 +39,7 @@ test('real browser verifies bounded native login using only synthetic responses 
    const content=url.pathname==='/login'?html:authenticated?`<h1>Fictional customer page</h1><p>${login.username} ${login.password}</p><form method="post" action="/delete"><button>Delete</button></form>`:form();
    void request.respond({status:200,contentType:'text/html',body:content},0);
   });
-  return {page,controls,credentials,posts,blocked,close:()=>context.close()};
+  return {page,controls,credentials,posts,blocked,close:()=>page.close()};
  };
  try {
   await t.test('basic login posts credentials once, redacts captured content, then blocks writes and outside origins',async()=>{

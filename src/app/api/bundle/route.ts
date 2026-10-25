@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import archiver from "archiver";
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { adminDb } from "@/lib/firebase-admin";
 
 export async function POST(req: NextRequest) {
     try {
@@ -12,14 +11,13 @@ export async function POST(req: NextRequest) {
         }
 
         // 1. Fetch the scout data from Firestore to get all asset URLs
-        const docRef = doc(db, "scouts", scoutId);
-        const docSnap = await getDoc(docRef);
-
-        if (!docSnap.exists()) {
-            return NextResponse.json({ error: "Scout data not found" }, { status: 404 });
-        }
+        const docRef = adminDb.collection("scouts").doc(scoutId);
+        const docSnap = await docRef.get();
 
         const scoutData = docSnap.data();
+        if (!docSnap.exists || !scoutData) {
+            return NextResponse.json({ error: "Scout data not found" }, { status: 404 });
+        }
         const urlsToDownload: { url: string; name: string; folder: string }[] = [];
 
         // 2. Extract URLs from the scoutData pages/screenshots

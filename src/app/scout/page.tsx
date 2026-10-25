@@ -2,8 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { ScoutTrail } from "@/components/scout-trail";
+import { useAuth } from "@/lib/auth-context";
 
 interface ProgressEvent {
   step: string;
@@ -13,10 +15,16 @@ interface ProgressEvent {
 
 export default function Home() {
   const [url, setUrl] = useState("");
+  const { user } = useAuth();
+  const router = useRouter();
   const [color, setColor] = useState("#2D4A22");
   const [devices, setDevices] = useState({ desktop: true, tablet: false, mobile: false });
   const [isScouting, setIsScouting] = useState(false);
   const [autoColor, setAutoColor] = useState(false);
+  const [authMode, setAuthMode] = useState<"none" | "basic" | "advanced">("none");
+  const [loginUrl, setLoginUrl] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [error, setError] = useState("");
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -34,6 +42,11 @@ export default function Home() {
   const handleScout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url) return;
+
+    if (!user) {
+      router.push("/login");
+      return;
+    }
 
     const formattedUrl = url.startsWith("http://") || url.startsWith("https://")
       ? url
@@ -72,6 +85,14 @@ export default function Home() {
           devices: selectedDevices.length ? selectedDevices : ["desktop"],
           autoDetectColor: autoColor,
           jobId,
+          ...(authMode !== "none" && loginUrl && username ? {
+            auth: {
+              mode: authMode,
+              loginUrl: loginUrl.startsWith("http") ? loginUrl : `https://${loginUrl}`,
+              username,
+              password,
+            },
+          } : {}),
         }),
       });
 
@@ -181,6 +202,65 @@ export default function Home() {
               <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Target Coordinates</label>
               <input type="text" placeholder="tailoroutreach.com" required className="input-scout" value={url} onChange={(e) => setUrl(e.target.value)} disabled={isScouting} />
             </div>
+
+            {/* Authentication Mode */}
+            <div>
+              <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Authentication</label>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                {([
+                  { key: "none", label: "None" },
+                  { key: "basic", label: "Basic" },
+                  { key: "advanced", label: "Advanced (AI)" },
+                ] as const).map(({ key, label }) => {
+                  const isActive = authMode === key;
+                  return (
+                    <button type="button" key={key} onClick={() => setAuthMode(key)} disabled={isScouting}
+                      style={{
+                        flex: 1, padding: "10px 0", borderRadius: "var(--radius-md)",
+                        border: `2px solid ${isActive ? "var(--forest)" : "var(--khaki)"}`,
+                        background: isActive ? "var(--forest)" : "var(--canvas-white)",
+                        color: isActive ? "var(--khaki-light)" : "var(--rope)",
+                        fontFamily: "var(--font-mono)", fontWeight: 700, cursor: isScouting ? "not-allowed" : "pointer",
+                        transition: "all 0.2s", fontSize: "0.8rem",
+                        boxShadow: isActive ? "var(--shadow-emboss)" : "none",
+                        opacity: isScouting ? 0.6 : 1,
+                      }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Credential Inputs */}
+            {authMode !== "none" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", padding: "1rem", background: "var(--parchment)", borderRadius: "var(--radius-md)", border: "2px dashed var(--khaki)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "0.25rem" }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--forest)", fontWeight: 700 }}>
+                    {authMode === "advanced" ? "🤖 AI-ASSISTED LOGIN" : "🔑 BASIC LOGIN"}
+                  </span>
+                </div>
+                <div>
+                  <label className="label-scout" style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.8rem" }}>Login URL</label>
+                  <input type="text" placeholder="app.example.com/login" className="input-scout" value={loginUrl} onChange={(e) => setLoginUrl(e.target.value)} disabled={isScouting} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                  <div>
+                    <label className="label-scout" style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.8rem" }}>Username / Email</label>
+                    <input type="text" placeholder="user@example.com" className="input-scout" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isScouting} />
+                  </div>
+                  <div>
+                    <label className="label-scout" style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.8rem" }}>Password</label>
+                    <input type="password" placeholder="••••••••" className="input-scout" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isScouting} />
+                  </div>
+                </div>
+                {authMode === "advanced" && (
+                  <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--rope)", margin: 0 }}>
+                    AI will analyze the login page and autonomously navigate complex login flows.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
               <div>

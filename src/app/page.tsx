@@ -19,7 +19,7 @@ export default function LandingPage() {
     return (
         <div className="animate-slide-up" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
             {/* Navbar wrapper — full bleed, sticky */}
-            <div style={{ padding: "0 2rem", maxWidth: "1120px", margin: "0 auto", width: "100%" }}>
+            <div style={{ padding: "2rem 2rem 0", maxWidth: "1120px", margin: "0 auto", width: "100%" }}>
                 <Navbar />
             </div>
 

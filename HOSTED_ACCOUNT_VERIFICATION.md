@@ -81,7 +81,7 @@ explicitly approved for public capture only; positive hosted native-login
 compatibility remains unverified.
 
 The fixed nonexistent scout-quota-fixture.example.com hostname was verified as
-NXDOMAIN. The bounded quota run observed nine 503 responses, then the account's
+NXDOMAIN. The bounded quota run observed eight 503 responses, then the account's
 daily-limit 429, Retry-After 45543 seconds, and a second 429 on replay. History's
 first page was unchanged; later cleanup also confirmed no additional pack.
 Earlier public/scoped test attempts were not independently counted from the

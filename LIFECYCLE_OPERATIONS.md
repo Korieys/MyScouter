@@ -69,8 +69,10 @@ usage caps are never refunded. A plan with an account request removes one pack
 per pass, so regenerate the bounded plan until that account finalizes.
 
 Do not use this runner to delete existing customer packs under the portfolio
-assignment. The only approved hosted deletion in this assignment is the exact
-synthetic `scout-5efaedef-0434-4790-97e0-07db860f313f` pack, verified separately.
+assignment. Approved hosted deletion is limited to the exact synthetic
+`scout-5efaedef-0434-4790-97e0-07db860f313f` pack and the separately approved
+45 metadata fixture rows in `history-fixture-manifest.json`. Both are complete;
+these approvals authorize no further pack or account deletion.
 
 ## Required worker separation
 

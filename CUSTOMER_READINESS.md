@@ -1,0 +1,137 @@
+# MyScouter customer-readiness repair
+
+Status: protected private capture preview on draft PR #1; customer launch and production release remain unapproved. Hosted second-account isolation, paging, daily-cap/replay, owned 50-image capture/download and exact approved fixture cleanup now pass. The separate worker is implemented and tested locally; cloud isolation and live account/retention operations remain unverified.
+
+## October 25 isolated-worker continuation
+
+See [ISOLATED_CAPTURE_WORKER.md](ISOLATED_CAPTURE_WORKER.md) and the inactive
+[exact IAM/deployment/budget review](worker/deployment/REVIEW.md). The engine now
+supports a fresh Cloud Run task with a keyless zero-data-role identity and a
+job-scoped authenticated upload/progress broker; the existing preview remains
+inline until separately approved activation. No new live identity, IAM, registry,
+job, budget, domain exception or worker flags were applied.
+
+The local production image renders as UID 10001 with no Firebase/OpenAI SDKs or
+API files. Four native Docker journeys pass through real broker logic and
+Firestore/Storage emulators: public capture 30 PNGs, Basic 5, advanced 5 and
+explicit rejected login with no guest result. All 40 PNGs fully decode and all
+three ZIPs pass CRC checks. Sixteen worker boundary checks and 37 database/storage
+groups pass; existing 55 application and 18 UI checks pass. Local lint, types,
+build and two built Next boundary checks pass. Exact-head CI is recorded in the
+project worker evidence. Mock worker identity/AI and fictional HTTPS responses
+mean these are local/emulated proofs, not hosted Cloud Run/IAM proof.
+
+Native login's script-disabled wait hang was fixed using Node timers. The trail,
+inline compatibility path and checked downloads are preserved. The worker's
+advanced planner accepts structure only, with page labels removed. Hosted worker
+login stays disabled pending a dedicated fixture and an explicit temporary
+credential-storage disclosure/consent decision; no real passwords were used.
+
+The final Debian 13 image scan has 56 high and one critical package finding
+(20 unique CVEs), with no fixed versions listed in the configured repository.
+The critical installed libxml2 finding remains a deployment gate requiring
+remediation or explicit limited-preview acceptance. Production npm audits are
+clear; that does not certify OS/browser/vendor bundles. The USD 5 budget,
+20-capture window ending 7 PM CDT October 26, broader project-preview federation
+and whole-domain protection exception are concrete proposals only.
+
+Hosted Google permission denial, interruption/cleanup, monitored lifecycle
+operations and alerts, positive hosted login and physical Safari/phone large
+ZIP behavior remain launch gates. Preserve the private-preview label.
+
+## Latest hosted account verification
+
+See [HOSTED_ACCOUNT_VERIFICATION.md](HOSTED_ACCOUNT_VERIFICATION.md) for the exact 7058d88 implementation, 116-check CI and real hosted proof. The first account’s three packs were unavailable to the second account through metadata, image, ZIP and processing APIs; eight direct object URLs returned 403. The second account saved a two-page/three-layout 50-PNG ZIP (11,910,540 bytes; full CRC and decode pass). Hosted paging reached 20/40/47 unique records; separately approved cleanup removed only 45 fixed metadata fixtures and left the two non-fixture records intact. Daily-cap 429/Retry-After/replay passed; existing downloads and cached work still functioned. The test account remains signed in and is capture-limited until 00:00 UTC.
+
+## October 25 continuation
+
+Implementation heads: 6e0dfb6db1b31f6467df5dd60ce9a8eb9ac0efdf (lifecycle and dependencies), 6fd07746d4c9bad1d0c26c45d59fd7784c3925b2 (clean npm override resolution), d73fa529525a970bf46335fa1f47456fe506398f (visible private-account identity). The trail animation and login capture flow are preserved. The interface explicitly labels the app a private capture preview and asks for test data.
+
+- CI at 6fd0774 passes 101 checks: 47 application, 16 UI, 24 Firestore/Storage emulator groups and 14 Chromium leaf scenarios (four network, four native-download, six fictional-login). Lint, TypeScript, production build, clean npm install and production audit pass. [Exact CI](https://github.com/Korieys/MyScouter/actions/runs/40180949644). Browser parent wrappers are excluded from the count.
+- Local Windows passed 46 application checks and all 16 UI checks; the unchanged cold-start subprocess timed out twice at 30 seconds. The same cold-start check passes in Linux CI, and the hosted preview starts successfully. Local TypeScript and lint pass. Java is not on the local PATH; database/storage execution is proven in disposable CI emulators.
+- At 6e0dfb6, hosted example.com capture showed server-reported browser startup and page discovery before completion (the animated trail displayed 11% and 30%; these are displayed values, not timing measurements). A concurrent second-tab attempt was refused with the account-in-progress message and its form recovered. This proves hosted account concurrency, not exhaustion of daily/global quotas.
+- Fresh saved pack: scout-2ac0df8b-6c2a-4a86-a161-f932402d18d7. Capture, enhancement, AI draft, private history, reopen and reload succeeded. The native in-app Chromium ZIP is 816,341 bytes, SHA-256 888e99d04904b1930903ba01b805e47476f79a0d1aa23c08fddc75287a671446; all ten PNGs fully decode and CRC passes. Earlier ten- and twenty-two-image proofs retain their original commit scope; download code is unchanged.
+- After the owner's explicit separate approval, the exact old synthetic pack scout-5efaedef-0434-4790-97e0-07db860f313f was deleted at preview head 52939ef. Confirmation/cancellation first preserved all three records; the final action reported success, history fell to two records and stayed so after reload, and the old URL became unavailable. Both newer packs remained listed. This is application-level cleanup evidence, not a separate cloud-console inventory of object generations or backups. The existing ZIP backup remains intact.
+- History refresh now marks interrupted captures failed only after the 390-second writer fence. It does not automatically delete packs or assets. Account requests require fresh authentication, exact confirmation and no active work; server-only state blocks subsequent requests/reservations. Bounded operator code drains owned packs, disables/revokes Auth and waits 65 minutes before profile/Auth finalization. Emulator tests cover isolation, writer fencing, identity failure/retry and stale cleanup-plan refusal.
+- The read-only maintenance planner reports capacity/cleanup signals, with no default retention duration. Apply needs a separately enabled environment plus the exact reviewed plan hash, current project/version and a plan less than an hour old. No planner/apply operation, account disable or retention deletion ran against live data. See [operating procedure and isolation boundary](LIFECYCLE_OPERATIONS.md).
+
+## Behavior
+
+Every capture, enhancement, copy, archive, image, history and progress request requires a Firebase ID token, including revocation checking. A caller-supplied user ID does not select ownership. Missing and other-owner records return the same unavailable response. Request identity caching ends with that request.
+
+Captures use random UUIDs and persist authoritative records in `privateScouts`. Images are stored at `private-scouts/{id}/{name}.png` with an explicit private object ACL and no public download token. The server derives asset names from the owned record; it never fetches caller-provided image URLs or local file paths. Client views use authenticated image blobs, clear their scope when the account or record changes, and reopen data from the server rather than localStorage. Optional enhancement or copy failures leave the captured pack accessible with retry controls.
+
+Saved history now loads 20 packs at a time with an explicit older-page action and refresh. Failed page requests retain displayed packs and retry the same position; failed refreshes retry the first page. Requests stop waiting after 20 seconds, including stalled token retrieval. Switching accounts remounts history and aborts pending loads so previous rows and cursors cannot cross into the new session. The former static settings/count panel is replaced by a clear count of loaded packs.
+
+History queries always filter by the verified account, then sort by creation time and document ID descending. Cursors carry a validated account-bound position and confer no access. One extra result determines whether another page exists. Value cursors survive deletion of the last displayed record; new captures are available through Refresh. The metadata projection excludes saved website text, AI copy and unused fields. The existing owner/date index's implicit descending document-ID order matches this query; no new live index or permissions were applied. See [Firestore query cursors](https://firebase.google.com/docs/firestore/query-data/query-cursors) and [default index ordering](https://firebase.google.com/docs/firestore/query-data/index-overview).
+
+The ZIP keeps its integrity checks, limits of 150 files and 128 MiB, batches of four asset reads, and a 45-second loading deadline. Individual reads have a 15-second deadline and 20 MiB limit. Completed downloads stream in 64 KiB chunks with private/no-store headers. The app reports a failed or incomplete archive instead of returning a partial success. [Vercel recommends streaming large responses](https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serverless-functions).
+
+The browser now validates the completed file's size and SHA-256 against server response headers before offering a ZIP or individual PNG for saving. It rejects missing metadata, wrong file types, oversized, truncated or same-length damaged responses. A 60-second deadline includes token retrieval, body reading and integrity checking. The ZIP client permits 129 MiB to include ZIP framing above the server's 128 MiB input limit; individual PNGs retain the 20 MiB limit. Files remain buffered for download and checksum verification, so large-pack memory behavior on real mobile devices still needs checking.
+
+Only one download runs at a time. Controls report that the file is being checked, release after errors and allow retry. Account changes, pack changes and unmounting abort pending requests; a current-session check also runs before saving. Delayed token retrieval cannot send a request after cancellation. A failed integrity check never creates a download link. Temporary blob URLs are released after the browser has had time to consume them.
+
+The capture worker checks HTTP(S), standard ports, URL credentials, DNS answers and private/reserved address ranges. Chromium uses a per-capture HTTP/CONNECT proxy which resolves each connection and pins the connection to the checked numeric address. Loopback bypass, direct fallback, QUIC, certificate-ignore and web-security-disable flags are excluded; service workers are bypassed. The proxy has limits of 256 MiB received, 1,500 connections and four minutes. A capture closes its browser after four minutes. Screenshots are bounded to 12,000 pixels high and saved sequentially to avoid retaining all image buffers. Up to six pages and three device layouts are supported; unavailable interior pages are skipped.
+
+Puppeteer/core 25.11.0 and Chromium-min/binary 153 are aligned. Sources: [Puppeteer compatibility table](https://pptr.dev/supported-browsers), [Sparticuz](https://github.com/Sparticuz/chromium), [Chromium proxy documentation](https://github.com/chromium/chromium/blob/main/net/docs/proxy.md).
+
+AI copy uses saved website evidence, validates the returned shape, persists successful drafts, and does not fabricate fallback testimonials or results. The interface discloses website-text transmission to OpenAI and asks customers to review drafts.
+
+Expensive work now reserves shared, server-only Firestore capacity before it starts. The preview allows each account 10 capture attempts and 30 attempts each for enhancements and copy per UTC day, with one active request of each kind per account. Project-wide daily caps are 100 captures, 300 enhancements and 300 copy attempts; concurrent caps are 3, 6 and 12 respectively. Started attempts count even on failure because provider work may already have been billed. A successful saved result is reused without another reservation. Limits and retry timing are visible to customers.
+
+Reservations outlive each function's maximum runtime and remain active across midnight. Expired attempts cannot publish a result or clear a newer reservation. Enhancement objects have unique attempt-specific names so a late worker cannot overwrite a replacement's images. Final results and reservation release commit atomically. Failed final progress updates do not turn a successfully saved capture into a failure. These caps bound expensive job counts; they are not dollar-denominated cloud spending guarantees.
+
+## Live configuration inspected October 23, 2026
+
+- Project: `myscouter-5f16b`; bucket: `myscouter-5f16b.firebasestorage.app`.
+- Existing Firestore rules allow customers their own user profile and allow public individual reads of legacy `scouts`. No client rule matches `privateScouts`, so new private records are denied through client SDKs. Admin routes enforce ownership themselves.
+- Existing Storage client rules expired March 23, 2026 and deny client access. The server uses the already configured Admin identity. Bucket permissions show fine-grained object ACLs and no allUsers/allAuthenticatedUsers bucket-wide grant.
+- Added and verified Enabled one collection index for `privateScouts`: `userId` ascending, `createdAt` descending; index ID `CICAgOjXh4EK`. The index does not grant access. Existing security policies and credentials were not changed.
+- Legacy records and public image objects were not migrated, deleted or made private. Earlier timestamp IDs are not accepted by the new owner API. Do not advertise retroactive privacy or recovery of untrusted legacy ownership.
+
+## Customer-controlled deletion
+
+The owner approved implementation and draft publication of this feature on October 24, 2026. That approval does not cover deleting an existing live pack, a merge or a production release.
+
+The dashboard identifies the selected pack by domain and capture date, explains that saved screenshots, mockups, website text and AI copy will be removed, and requires typing DELETE before the final action. Canceling before submission leaves it unchanged. Once a request starts, closing the page does not undo it. Timeouts report an uncertain outcome and direct the customer to refresh history. Previously downloaded copies remain on the customer's device.
+
+DELETE `/api/scouts/{id}` verifies a revocation-checked owner token before any data access. A transaction reads the exact pack plus the owner's capture, enhancement and copy reservations, and rejects active work. Those reads conflict with concurrent reservations. The transaction marks the pack `deleting`, removes saved website/copy/image-reference content, and retains only dashboard metadata for retry. Ordinary record access, assets, ZIP downloads and further processing reject that state. Usage counters are never refunded or removed.
+
+Cleanup lists only the server-derived `private-scouts/{validated-UUID}/` prefix, including outputs from failed attempts. It reads 100 objects per batch, deletes four at a time and bounds each request to 1,000 objects and a 40-second cleanup deadline. The next list starts from the beginning to avoid skips while deleting. Only an empty folder followed by successful database finalization counts as completion. On failure, the record remains inaccessible and the dashboard offers Finish deleting. Already removed objects can safely be retried. Concurrent confirmed cleanups may share the work, but neither can affect a neighboring UUID folder or reset usage.
+
+The disposable database test setup now starts both Firestore and Storage emulators. Tests refuse to run unless their hosts are exactly `127.0.0.1:8187` and `127.0.0.1:9197`, with the fixed `demo-myscouter-readiness` project. They verify real file removal across multiple list batches, owner and folder isolation, active-work races, partial storage failure/retry and a failed final database write. No live credential or customer record is used.
+
+This is explicit removal from the application's active records and objects. Automatic retention, whole-account deletion, provider backup/soft-delete retention and cleanup of outputs from workers that outlive their enforced execution window remain separate operational requirements.
+
+## Verification
+
+30 local regression checks cover archive contents and failures; a streamed file larger than 6 MiB with exact SHA-256 and chunk limits; the generated ZIP passed through the actual server response and browser download reader byte-for-byte; truncated, damaged, oversized and wrong-type files; token/body timeouts and cancellation; unsigned requests to all eight endpoints; identity, revocation, cross-account and missing-record handling; safe file references; input limits; output privacy; copy validation; private/reserved addresses; all-answer DNS checks and rebinding; actual local HTTP/CONNECT rejection; proxy connection limits and idempotent cleanup. Two native image tests render all 11 mockup, collage and social outputs, decode their PNGs, check dimensions and retained screenshot pixels, and reject invalid images before storage. Tests use fictional identities and service doubles; they do not substitute for hosted two-account verification.
+
+Three of the application checks cover history request authentication, cursor encoding, malformed responses, cancellation during token retrieval and the request deadline. Twelve component tests cover older pages, duplicate clicks, retry without losing rows, refresh recovery, account changes with late responses, duplicate record handling, empty history, strict-effect cleanup/unmounting, verified download saving, invalid-download retries, pack/account-change cancellation, same-account refresh and the current-session check. UI tests use a local DOM and synthetic responses; they do not establish the hosted account-to-database workflow or device layout.
+
+TypeScript, lint and a production build are required. CI uses fictional public Firebase settings and no server credentials. Its browser-network job downloads the same Chromium 153 Linux pack used by the hosted capture route and calls the shared launch and request setup. Four scenarios render and decode a screenshot of public example.com through the checked proxy; verify proxy-only loopback and private-DNS HTTP/HTTPS rejection; follow a synthetic redirect into the shared request filter; and reject embedded private resources. A local canary records unexpected private access. These checks require Linux and production mode and fail rather than silently skipping on a different platform. Run `NODE_ENV=production npm run test:browser-network` on Linux. They do not prove the Vercel runtime, every browser transport, DNS behavior outside the fixture, or native exploit isolation.
+
+The native-download CI check imports the actual production download reader and saver into Chromium 153 and serves synthetic authenticated responses on a disposable local server. It generates a ZIP from the full 128 MiB input allowance, asks Chromium to save it, and compares the file on disk byte-for-byte by SHA-256. Three more scenarios verify that truncated/corrupt responses save nothing and recover on retry, cancellation closes a stalled response before a successful retry, and a saved PNG decodes correctly in a 390-pixel touch viewport. Run `npm run test:browser-download` on Linux. This is a browser-engine and native-save check with synthetic credentials, not proof of hosted sign-in, Firebase access, physical mobile memory capacity or the full application's mobile layout. Its four leaf scenarios are counted separately from the parent test wrapper.
+
+Firebase Admin is updated to 14.5.0 and Sharp to 0.35.5, with compatible lockfile updates. Node 24 is declared for development and deployment, matching CI and Firebase Admin 14's runtime requirement. Existing modular Firebase imports remain supported; removed legacy namespace and messaging APIs are not used.
+
+The hosted-runtime check found that `jwks-rsa` requires ESM-only `jose` 6 while Vercel disables experimental require-of-ESM by default. A scoped override pins only `jwks-rsa`'s `jose` dependency to the CommonJS-compatible 5.10.0 release. Firebase Admin remains 14.5.0. A cold-start regression launches a plain Node subprocess with require-of-ESM explicitly disabled and imports the real Auth, Firestore and Storage SDKs. No TypeScript loader is used in that subprocess because a loader could mask the incompatibility. This is startup evidence, not hosted account-to-storage verification. Reassess the override when [upstream compatibility](https://github.com/auth0/node-jwks-rsa/issues/507) is restored; [Vercel documents its default](https://vercel.com/docs/functions/runtimes/node-js/advanced-node-configuration#experimental-nodejs-require-of-es-module).
+
+The production dependency audit now reports zero entries. Puppeteer and core stay at 25.11.0 with Chromium 153, explicitly selecting Chrome/CDP in both launch modes. One override replaces both parents' chromium-bidi dependency with upstream 157.0.8090-0, resolving modular Zod 4.6.7. The actual resolved parser accepts legitimate objects, translates invalid arguments, and rejects oversized arrays, sets and maps before unnecessary element validation. npm ls passes after consolidating duplicate override sets. Existing Firebase gRPC and jose overrides remain. See [Zod advisory](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5) and [Puppeteer protocol defaults](https://pptr.dev/webdriver-bidi).
+
+A separate dormant vendor limitation remains: the BiDi package's standalone mapperTab.js bundle embeds Zod 4.6.5. Independent review reproduced its old oversized-array behavior but found no application route to that asset: neither launch selects BiDi, and even the optional bridge imports modular BidiMapper instead. Clearing the four npm advisory entries and validating supported CDP capture does not certify this unused standalone asset or arbitrary BiDi runtime support. Do not enable another protocol without revisiting this boundary.
+
+Upgrade references: [Firebase Admin 14 breaking changes](https://github.com/firebase/firebase-admin-node/releases/tag/v14.0.0), [Sharp 0.35 migration](https://sharp.pixelplumbing.com/changelog/v0.35.0/), [Sharp 0.35.5](https://sharp.pixelplumbing.com/changelog/v0.35.5/), and [Puppeteer browser compatibility](https://pptr.dev/supported-browsers).
+
+Fourteen database-emulator groups exercise real concurrent transactions, account/global capacity, failure and replay behavior, midnight/expiry fencing, cross-owner rejection, malformed usage state, unique enhancement names and client denial of private records/usage. The client-transport check creates and merges an owned profile, reads back intact fields, rejects another account's read/write and confirms no unauthorized change. Four history groups cover 45 owned records across tied timestamps, exact-page endings, empty history, a deleted cursor anchor, concurrent newer inserts, invalid/cross-account cursors and metadata-only output. The emulator is restricted to the disposable `demo-myscouter-readiness` project at `127.0.0.1:8187`; its rules fixture reproduces the inspected live policy and is not a policy deployment. Run with `firebase emulators:exec --config firebase.emulators.json --project demo-myscouter-readiness --only firestore,storage "npm run test:database"`. Java 21 and Firebase CLI 15.34.0 are configured in CI; local Windows does not currently have Java on PATH.
+
+## Remaining release gates
+
+- Positive hosted native-form website login. The owner selected korieygrotesk.com for public capture only. Six Chromium login fixtures and a real unsupported-login stop do not prove a hosted provider.
+- An isolated capture runtime with restricted identity and no API Firebase/OpenAI secrets. The browser still shares the API process.
+- Approved monitored retention/account-deletion worker, provider backup policy, operator spending/alert/support ownership and delivered alert proof. Whole-account deletion remains disabled.
+- Real session revocation, hosted worker interruption, global daily exhaustion and broader edge abuse/recovery. The per-account daily cap and rejection replay are now hosted-proven.
+- Physical phone/Safari normal and large ZIP behavior. Windows in-app-browser 11.9-MB and Linux synthetic 128-MiB saves have narrower scope.
+- Legacy public data/ownership review and the documented dormant unsupported BiDi asset.
+
+No application merge/production release, IAM grant, payment or outbound notification was performed. The previously approved single synthetic-pack deletion and this turn’s separately approved 45-row fixture cleanup are the only hosted destructive operations. All other packs, images and accounts were preserved. No usage counters were reset.

@@ -43,6 +43,7 @@ function useTrailProgress(target: number) {
 
   useEffect(() => {
     let raf = 0;
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
     let last = performance.now();
     let value = 0;
 
@@ -50,6 +51,13 @@ function useTrailProgress(target: number) {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       const real = targetRef.current;
+
+      if (preference.matches) {
+        value = real;
+        setShown(real);
+        raf = requestAnimationFrame(tick);
+        return;
+      }
 
       if (value < real) {
         value += (real - value) * (1 - Math.exp(-dt * 4));

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "bindings": [
+    {
+      "role": "projects/myscouter-5f16b/roles/myscouterPreviewDispatch",
+      "members": [
+        "serviceAccount:myscouter-preview-dispatch@myscouter-5f16b.iam.gserviceaccount.com"
+      ]
+    }
+  ]
+}

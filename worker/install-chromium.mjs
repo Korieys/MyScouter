@@ -1,0 +1,13 @@
+import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+const pin=JSON.parse(await fs.readFile('worker/chromium.json','utf8'));
+const response=await fetch(pin.url,{signal:AbortSignal.timeout(120000)});
+if(!response.ok)throw Error('Chrome release unavailable');
+const buffer=Buffer.from(await response.arrayBuffer());
+if(createHash('sha256').update(buffer).digest('hex')!==pin.sha256)throw Error('Chrome release hash mismatch');
+await fs.writeFile('/tmp/chrome.zip',buffer);
+execFileSync('unzip',['-q','/tmp/chrome.zip','-d','/opt']);
+await fs.rename('/opt/chrome-headless-shell-linux64','/opt/chromium-runtime');
+await fs.chmod('/opt/chromium-runtime/chrome-headless-shell',0o755);
+await fs.rm('/tmp/chrome.zip');

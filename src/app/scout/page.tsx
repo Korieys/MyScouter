@@ -1,40 +1,46 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import type {User} from 'firebase/auth';
+import { useAuth } from '@/lib/auth-context';
+import { runScout, type ScoutProgress } from '@/lib/run-scout';
+import {ScoutTrail} from '@/components/scout-trail';
+import { WORK_LIMITS } from '@/lib/work-policy';
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
-import { ScoutTrail } from "@/components/scout-trail";
-import { useAuth } from "@/lib/auth-context";
-
-interface ProgressEvent {
-  step: string;
-  detail: string;
-  progress: number;
-}
 
 export default function Home() {
-  const [url, setUrl] = useState("");
-  const { user } = useAuth();
-  const router = useRouter();
+  return <Suspense fallback={<p>Loading scout form…</p>}><ScoutForm /></Suspense>;
+}
+
+function ScoutForm() {
+  const {user,loading}=useAuth();
+  const router=useRouter();
+  useEffect(()=>{if(!loading && !user)router.replace('/login?next=/scout');},[loading,user,router]);
+  if(loading)return <p>Loading your account…</p>;
+  if(!user)return <p><Link href="/login?next=/scout">Sign in to create and save your asset pack.</Link></p>;
+  return <AuthenticatedScoutForm key={user.uid} user={user} />;
+}
+
+function AuthenticatedScoutForm({user}:{user:User}) {
+  const searchParams = useSearchParams();
+  const [url, setUrl] = useState(() => (searchParams.get('url') || '').slice(0, 2048));
   const [color, setColor] = useState("#2D4A22");
   const [devices, setDevices] = useState({ desktop: true, tablet: false, mobile: false });
   const [isScouting, setIsScouting] = useState(false);
   const [autoColor, setAutoColor] = useState(false);
-  const [authMode, setAuthMode] = useState<"none" | "basic" | "advanced">("none");
-  const [loginUrl, setLoginUrl] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [aiLoginConsent, setAiLoginConsent] = useState(false);
-  const [progress, setProgress] = useState<ProgressEvent | null>(null);
+  const [progress, setProgress] = useState<ScoutProgress | null>(null);
   const [error, setError] = useState("");
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const [loginMode,setLoginMode]=useState<'none'|'basic'|'advanced'>('none');
+  const [loginUrl,setLoginUrl]=useState('');
+  const [username,setUsername]=useState('');
+  const [password,setPassword]=useState('');
+  const [loginConsent,setLoginConsent]=useState(false);
+  const [aiConsent,setAiConsent]=useState(false);
+  const active=useRef<AbortController|null>(null);
+  useEffect(()=>()=>active.current?.abort(),[]);
 
-  useEffect(() => {
-    return () => {
-      eventSourceRef.current?.close();
-    };
-  }, []);
 
   const handleDeviceChange = (device: keyof typeof devices) => {
     setDevices((prev) => ({ ...prev, [device]: !prev[device] }));
@@ -44,144 +50,32 @@ export default function Home() {
     e.preventDefault();
     if (!url) return;
 
-    if (!user) {
-      router.push("/login");
-      return;
-    }
-
-    // Advanced login shares credentials with OpenAI, so it needs explicit consent.
-    if (authMode === "advanced" && !aiLoginConsent) {
-      setError("Confirm you're OK sharing your login with OpenAI, or switch to Basic login.");
-      return;
-    }
-
     const formattedUrl = url.startsWith("http://") || url.startsWith("https://")
       ? url
       : `https://${url}`;
 
+    if(active.current)return;
+    const controller=new AbortController();
+    active.current=controller;
     setIsScouting(true);
-    setError("");
-    setProgress({ step: "init", detail: "Starting scout...", progress: 0 });
-
-    // Progress only ever moves forward; the client's own milestones and the server's
-    // stream can arrive out of order. The client announces "done" itself after copy.
-    const advance = (event: ProgressEvent) =>
-      setProgress((prev) => (prev && event.progress < prev.progress ? prev : event));
-
-    // Open the progress stream before scouting so the long capture phase is visible.
-    const jobId = `job-${crypto.randomUUID()}`;
-    const es = new EventSource(`/api/scout/progress?jobId=${jobId}`);
-    eventSourceRef.current = es;
-    es.onmessage = (e) => {
-      try {
-        const event: ProgressEvent = JSON.parse(e.data);
-        if (event.step !== "done" && event.progress >= 0) advance(event);
-      } catch { /* ignore */ }
-    };
-
+    setError('');
+    setProgress(null);
+    const selectedDevices=Object.entries(devices).filter(([,value])=>value).map(([key])=>key);
+    const login=loginMode==='none'?undefined:{mode:loginMode,url:loginUrl,username,password,consent:loginConsent,aiConsent};
+    setPassword('');
     try {
-      // Step 1: Scout
-      const selectedDevices = Object.entries(devices).filter(([, v]) => v).map(([k]) => k);
-
-      const scoutRes = await fetch("/api/scout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: formattedUrl,
-          brandColor: color,
-          devices: selectedDevices.length ? selectedDevices : ["desktop"],
-          autoDetectColor: autoColor,
-          jobId,
-          ...(authMode !== "none" && loginUrl && username ? {
-            auth: {
-              mode: authMode,
-              loginUrl: loginUrl.startsWith("http") ? loginUrl : `https://${loginUrl}`,
-              username,
-              password,
-            },
-          } : {}),
-        }),
-      });
-
-      if (!scoutRes.ok) {
-        const err = await scoutRes.json();
-        throw new Error(err.error || "Scout failed");
-      }
-
-      const scoutData = await scoutRes.json();
-
-      // Step 2: Enhance
-      advance({ step: "enhance", detail: "Enhancing screenshots...", progress: 72 });
-
-      const enhanceRes = await fetch("/api/enhance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scoutId: scoutData.id,
-          jobId,
-          brandColor: scoutData.brandColor,
-          pages: scoutData.pages,
-        }),
-      });
-
-      if (!enhanceRes.ok) {
-        const err = await enhanceRes.json();
-        throw new Error(err.error || "Enhancement failed");
-      }
-
-      const enhanceData = await enhanceRes.json();
-
-      // Step 3: AI Copy
-      advance({ step: "copy", detail: "Writing marketing copy...", progress: 95 });
-
-      let copyData = null;
-      try {
-        const copyRes = await fetch("/api/copy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            textContent: scoutData.textContent,
-            domain: scoutData.domain,
-            pageTitle: scoutData.pages[0]?.title || "",
-          }),
-        });
-        if (copyRes.ok) {
-          copyData = await copyRes.json();
-        }
-      } catch {
-        // Non-fatal — copy generation is optional
-      }
-
-      // Store results
-      const result = {
-        ...scoutData,
-        enhancedAssets: enhanceData.assets,
-        copy: copyData,
-        scoutId: scoutData.id,
-      };
-      localStorage.setItem("myscouter-latest", JSON.stringify(result));
-      localStorage.setItem(`myscouter-${scoutData.id}`, JSON.stringify(result));
-
-      setProgress({ step: "done", detail: "Scout complete! Heading back to camp...", progress: 100 });
-
-      es.close();
-      eventSourceRef.current = null;
-
-      // Navigate after a brief moment so the summit celebration is visible
-      setTimeout(() => {
-        window.location.href = `/preview/${scoutData.id}`;
-      }, 1400);
-
-    } catch (err) {
-      console.error("Scout pipeline error:", err);
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      const id=await runScout(user,{url:formattedUrl,brandColor:color,devices:selectedDevices.length?selectedDevices:['desktop'],autoDetectColor:autoColor,login},setProgress,controller.signal);
+      controller.signal.throwIfAborted();
+      window.location.href='/preview/'+id;
+      // Keep the form disabled until navigation; no second request can race it.
+    } catch(err) {
+      if(controller.signal.aborted)return;
+      setError(err instanceof Error?err.message:'The capture could not finish. Please try again.');
       setProgress(null);
       setIsScouting(false);
-      eventSourceRef.current?.close();
+      active.current=null;
     }
   };
-
-  const domain = url.replace(/^https?:\/\//, "").split("/")[0];
 
   return (
     <div style={{ padding: "3rem 2rem", maxWidth: "880px", margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -196,7 +90,7 @@ export default function Home() {
             New Scout
           </h2>
           <p style={{ fontSize: "1.05rem", color: "var(--rope)" }}>
-            Enter a target URL below to dispatch a scout.
+            Capture a website you own or have permission to use. Long pages are limited to the first 12,000 pixels.
           </p>
         </div>
 
@@ -206,91 +100,31 @@ export default function Home() {
 
           <form onSubmit={handleScout} style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
             <div>
-              <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Target Coordinates</label>
-              <input type="text" placeholder="tailoroutreach.com" required className="input-scout" value={url} onChange={(e) => setUrl(e.target.value)} disabled={isScouting} />
+              <label htmlFor="scout-url" className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Website URL</label>
+              <input id="scout-url" type="text" placeholder="example.com" required className="input-scout" value={url} onChange={(e) => setUrl(e.target.value)} disabled={isScouting} />
             </div>
 
-            {/* Authentication Mode */}
-            <div>
-              <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Authentication</label>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                {([
-                  { key: "none", label: "None" },
-                  { key: "basic", label: "Basic" },
-                  { key: "advanced", label: "Advanced (AI)" },
-                ] as const).map(({ key, label }) => {
-                  const isActive = authMode === key;
-                  return (
-                    <button type="button" key={key} onClick={() => setAuthMode(key)} disabled={isScouting}
-                      style={{
-                        flex: 1, padding: "10px 0", borderRadius: "var(--radius-md)",
-                        border: `2px solid ${isActive ? "var(--forest)" : "var(--khaki)"}`,
-                        background: isActive ? "var(--forest)" : "var(--canvas-white)",
-                        color: isActive ? "var(--khaki-light)" : "var(--rope)",
-                        fontFamily: "var(--font-mono)", fontWeight: 700, cursor: isScouting ? "not-allowed" : "pointer",
-                        transition: "all 0.2s", fontSize: "0.8rem",
-                        boxShadow: isActive ? "var(--shadow-emboss)" : "none",
-                        opacity: isScouting ? 0.6 : 1,
-                      }}>
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Credential Inputs */}
-            {authMode !== "none" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", padding: "1rem", background: "var(--parchment)", borderRadius: "var(--radius-md)", border: "2px dashed var(--khaki)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "0.25rem" }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--forest)", fontWeight: 700 }}>
-                    {authMode === "advanced" ? "🤖 AI-ASSISTED LOGIN" : "🔑 BASIC LOGIN"}
-                  </span>
-                </div>
-                <div>
-                  <label className="label-scout" style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.8rem" }}>Login URL</label>
-                  <input type="text" placeholder="app.example.com/login" className="input-scout" value={loginUrl} onChange={(e) => setLoginUrl(e.target.value)} disabled={isScouting} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                  <div>
-                    <label className="label-scout" style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.8rem" }}>Username / Email</label>
-                    <input type="text" placeholder="user@example.com" className="input-scout" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isScouting} />
-                  </div>
-                  <div>
-                    <label className="label-scout" style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.8rem" }}>Password</label>
-                    <input type="password" placeholder="••••••••" className="input-scout" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isScouting} />
-                  </div>
-                </div>
-                {/* Privacy disclosure */}
-                <div role="note" style={{ display: "flex", flexDirection: "column", gap: "0.5rem", padding: "0.75rem 0.85rem", background: "var(--canvas-white)", borderRadius: "var(--radius-sm)", border: `1px solid ${authMode === "advanced" ? "var(--campfire)" : "var(--khaki)"}` }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700, letterSpacing: "1px", color: authMode === "advanced" ? "var(--ember)" : "var(--forest)" }}>
-                    HOW YOUR LOGIN IS USED
-                  </span>
-                  {authMode === "advanced" ? (
-                    <p style={{ fontSize: "0.8rem", color: "var(--charcoal)", margin: 0, lineHeight: 1.55 }}>
-                      Advanced login uses AI to work out the sign-in steps. To do that, it sends the login page&apos;s
-                      form fields <strong>and the username and password you enter here to OpenAI</strong>.
-                    </p>
-                  ) : (
-                    <p style={{ fontSize: "0.8rem", color: "var(--charcoal)", margin: 0, lineHeight: 1.55 }}>
-                      Basic login types your username and password into the site from the scout&apos;s own browser.
-                      Your credentials aren&apos;t sent to any AI service.
-                    </p>
-                  )}
-                  <p style={{ fontSize: "0.8rem", color: "var(--charcoal)", margin: 0, lineHeight: 1.55 }}>
-                    Your credentials are only used for this scout and aren&apos;t saved. Text from the pages the scout
-                    visits, including ones behind the login, is sent to OpenAI to write your marketing copy.
-                    Use a demo or test account when you can.
-                  </p>
-                  {authMode === "advanced" && (
-                    <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.8rem", fontWeight: 600, color: "var(--forest-deep)", cursor: "pointer", marginTop: "0.25rem" }}>
-                      <input type="checkbox" required checked={aiLoginConsent} onChange={(e) => { setAiLoginConsent(e.target.checked); setError(""); }} disabled={isScouting} style={{ accentColor: "var(--forest)", marginTop: "3px" }} />
-                      I understand my login details will be shared with OpenAI for this scout.
-                    </label>
-                  )}
-                </div>
-              </div>
-            )}
+            <fieldset disabled={isScouting} style={{border:0,padding:0,display:'grid',gap:'0.75rem'}}>
+              <legend className="label-scout">Website sign-in</legend>
+              <label htmlFor="login-mode">Capture access</label>
+              <select id="login-mode" className="input-scout" value={loginMode} onChange={e=>{setLoginMode(e.target.value as typeof loginMode);setPassword('');setLoginConsent(false);setAiConsent(false);}}>
+                <option value="none">Public page — no sign-in</option>
+                <option value="basic">Basic sign-in</option>
+                <option value="advanced">AI-assisted field selection</option>
+              </select>
+              {loginMode!=='none' && <>
+                <label htmlFor="login-url">Sign-in page URL</label>
+                <input id="login-url" type="url" required className="input-scout" placeholder="https://example.com/login" value={loginUrl} onChange={e=>setLoginUrl(e.target.value)} maxLength={2048}/>
+                <label htmlFor="site-username">Website username or email</label>
+                <input id="site-username" required className="input-scout" autoComplete="off" value={username} onChange={e=>setUsername(e.target.value)} maxLength={256}/>
+                <label htmlFor="site-password">Website password</label>
+                <input id="site-password" type="password" required className="input-scout" autoComplete="off" value={password} onChange={e=>setPassword(e.target.value)} maxLength={1024}/>
+                <p style={{fontSize:'0.85rem'}}>Use a dedicated account with permission to capture this website. Sign-in supports native forms on the same HTTPS website, without query strings. Scripts, third-party sign-in, verification codes and CAPTCHA are unsupported. Signed-in scouts capture only the requested page, and external styles or images may be unavailable.</p>
+                <p style={{fontSize:'0.85rem'}}>Credentials are used temporarily to sign in and are not sent to AI or saved as account details. Screenshots are saved privately; readable captured page text is sent to OpenAI for draft copy. Avoid pages containing sensitive information.</p>
+                <label><input type="checkbox" required checked={loginConsent} onChange={e=>setLoginConsent(e.target.checked)}/> I have permission to sign in and capture this page, and agree to the captured text processing described above.</label>
+                {loginMode==='advanced' && <label><input type="checkbox" required checked={aiConsent} onChange={e=>setAiConsent(e.target.checked)}/> I agree to send bounded, redacted field labels to OpenAI to identify the sign-in fields. My username and password are inserted locally after field selection.</label>}
+              </>}
+            </fieldset>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
               <div>
@@ -336,14 +170,14 @@ export default function Home() {
 
             <hr className="rope-divider" style={{ margin: "0.5rem 0" }} />
 
-            {progress && (
-              <ScoutTrail step={progress.step} detail={progress.detail} progress={progress.progress} domain={domain} />
-            )}
+            {isScouting && progress && <ScoutTrail step={progress.step} detail={progress.detail} progress={progress.progress} domain={url.replace(/^https?:\/\//,'').split('/')[0]} />}
 
             <button type="submit" className="btn-campfire" style={{ width: "100%", padding: "16px", fontSize: "1rem" }} disabled={isScouting}>
-              {isScouting ? "Scout is on the trail..." : "Send Scout"}
+              {isScouting ? (progress?.detail || "Scout is on the trail...") : "Send Scout"}
             </button>
 
+            <p style={{fontSize:'0.85rem',color:'var(--rope)'}}>Your captures are saved privately to your account in Google Cloud. Readable website text is sent to OpenAI to prepare draft copy. Review the images and text before publishing.</p>
+            <p style={{fontSize:'0.85rem',color:'var(--rope)'}}>Preview allowance: {WORK_LIMITS.capture.accountDaily} capture attempts per day, with one capture running at a time. Mockup and copy retries each allow {WORK_LIMITS.copy.accountDaily} attempts. Limits reset at midnight UTC; failed attempts count.</p>
             {error && (
               <p style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--ember)" }}>
                 {error}

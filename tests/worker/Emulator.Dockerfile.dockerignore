@@ -1,0 +1,9 @@
+**
+!firebase.emulators.json
+!tests/
+!tests/worker/
+!tests/worker/Emulator.Dockerfile
+!tests/worker/Emulator.Dockerfile.dockerignore
+!tests/database/
+!tests/database/current-live.rules
+!tests/database/storage.rules

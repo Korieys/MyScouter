@@ -1,0 +1,13 @@
+{
+  "displayName": "MyScouter Vercel preview",
+  "attributeMapping": {
+    "google.subject": "assertion.sub"
+  },
+  "attributeCondition": "assertion.sub == 'owner:korieys-projects:project:my-scouter:environment:preview'",
+  "oidc": {
+    "issuerUri": "https://oidc.vercel.com/korieys-projects",
+    "allowedAudiences": [
+      "https://vercel.com/korieys-projects"
+    ]
+  }
+}

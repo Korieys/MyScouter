@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { useAuth } from '@/lib/auth-context';
+import { authFetch, jsonResult } from '@/lib/auth-fetch';
+import { auth } from '@/lib/firebase';
+import { usePrivateDownload } from '@/lib/use-private-download';
+import { PrivateImage } from '@/components/private-image';
 import { Navbar } from "@/components/navbar";
 
 interface ScoutData {
@@ -13,7 +16,8 @@ interface ScoutData {
     domain: string;
     brandColor: string;
     textContent: string;
-    scoutId: string;
+    scoutId?: string;
+    status: string;
     pages: {
         url: string;
         title: string;
@@ -34,11 +38,6 @@ interface ScoutData {
     };
 }
 
-function getAssetUrl(relativePath: string): string {
-    if (relativePath.startsWith('http')) return relativePath;
-    return `/api/assets/${relativePath.replace(/\\/g, "/")}`;
-}
-
 function getFilename(fullPath: string): string {
     return fullPath.replace(/\\/g, "/").split("/").pop() || "";
 }
@@ -46,86 +45,41 @@ function getFilename(fullPath: string): string {
 export default function AssetPreview() {
     const params = useParams();
     const [data, setData] = useState<ScoutData | null>(null);
-    const [downloading, setDownloading] = useState(false);
-    const [loading, setLoading] = useState(true);
+    const [stageError, setStageError] = useState('');
     const [compareMode, setCompareMode] = useState(false);
+    const {user, loading:authLoading} = useAuth();
+    const {download, downloading, downloadError} = usePrivateDownload(user,String(params.id),() => auth.currentUser?.uid === user?.uid);
+    const [loadedFor, setLoadedFor] = useState('');
+    const [loadError,setLoadError] = useState('');
+    const [working,setWorking] = useState('');
+    const loadKey = `${user?.uid || ''}:${String(params.id)}`;
 
     useEffect(() => {
-        loadData();
-    }, []);
+        if (authLoading) return;
+        if (!user) return;
+        const controller = new AbortController();
+        void authFetch(user, '/api/scouts/' + encodeURIComponent(String(params.id)), {signal:controller.signal})
+            .then(jsonResult).then(result => {if(!controller.signal.aborted){setData(result);setLoadError('');setLoadedFor(loadKey);}})
+            .catch(error => {if(!controller.signal.aborted){setData(null);setLoadError(error.message);setLoadedFor(loadKey);}});
+        return () => controller.abort();
+    }, [user, authLoading, params.id, loadKey]);
 
-    const loadData = async () => {
-        const id = params.id as string;
-
-        // Try localStorage first (for freshly scouted data)
-        const stored = localStorage.getItem(`myscouter-${id}`) || localStorage.getItem("myscouter-latest");
-        if (stored) {
-            try {
-                const parsed = JSON.parse(stored);
-                if (parsed.id === id || parsed.scoutId === id) {
-                    setData(parsed);
-                    setLoading(false);
-                    return;
-                }
-            } catch { /* ignore */ }
-        }
-
-        // Try Firestore (for shared/historical links)
+    const retryStage = async (stage:'enhance'|'copy') => {
+        if(!data || working) return;
+        setWorking(stage); setStageError('');
         try {
-            const docSnap = await getDoc(doc(db, "scouts", id));
-            if (docSnap.exists()) {
-                const firestoreData = docSnap.data();
-                setData(firestoreData as ScoutData);
-            }
-        } catch (err) {
-            console.error("Firestore load error:", err);
-        }
-
-        setLoading(false);
-    };
-
-    const handleDownload = async () => {
-        if (!data) return;
-        setDownloading(true);
-        try {
-            const res = await fetch("/api/bundle", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ scoutId: data.id || data.scoutId }),
-            });
-            if (!res.ok) throw new Error("Bundle failed");
-            const blob = await res.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `myscouter-${data.id || data.scoutId}.zip`;
-            a.click();
-            window.URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error("Download error:", err);
-        } finally {
-            setDownloading(false);
-        }
-    };
-
-    const handleShareLink = () => {
-        navigator.clipboard.writeText(window.location.href);
-        alert("Link copied to clipboard!");
-    };
-
-    const downloadIndividual = (assetPath: string) => {
-        const url = getAssetUrl(assetPath);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = getFilename(assetPath);
-        a.click();
+            await jsonResult(await authFetch(user,'/api/'+stage,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scoutId:data.id})}));
+            const result = await jsonResult(await authFetch(user,'/api/scouts/'+encodeURIComponent(data.id)));
+            setData(current => current === data ? result : current);
+        } catch(error) {setStageError(error instanceof Error ? error.message : 'Please try again.');}
+        finally {setWorking('');}
     };
 
     // Categorize assets
     const heroAssets = data?.enhancedAssets?.filter((p) => p.includes("hero") && p.includes("enhanced")) || [];
-    const mockupAssets = data?.enhancedAssets?.filter((p) => p.includes("mockups") && (p.includes("laptop") || p.includes("phone") || p.includes("tablet") || p.includes("browser"))) || [];
+    const mockupAssets = data?.enhancedAssets?.filter((p) => (p.includes("laptop") || p.includes("phone") || p.includes("tablet") || p.includes("browser"))) || [];
     const gridAssets = data?.enhancedAssets?.filter((p) => p.includes("grid") || p.includes("collage")) || [];
-    const socialAssets = data?.enhancedAssets?.filter((p) => p.includes("social")) || [];
+    const socialAssets = data?.enhancedAssets?.filter((p) => /^(twitter|linkedin|dribbble|producthunt)-/.test(p)) || [];
 
     const rawHeroes = data?.pages?.flatMap((p) => p.screenshots?.filter((s) => s.type === "hero") || []) || [];
     const rawFeatures = data?.pages?.flatMap((p) => p.screenshots?.filter((s) => s.type === "feature") || []) || [];
@@ -135,7 +89,7 @@ export default function AssetPreview() {
     const desktopHeroes = rawHeroes.filter((s) => s.viewport === "desktop");
     const mobileHeroes = rawHeroes.filter((s) => s.viewport === "mobile");
 
-    if (loading) {
+    if (authLoading || (user && loadedFor !== loadKey)) {
         return (
             <div className="animate-slide-up" style={{ padding: "3rem 2rem", maxWidth: "1200px", margin: "0 auto" }}>
                 <div className="skeleton" style={{ height: "40px", width: "200px", marginBottom: "1rem", borderRadius: "8px" }} />
@@ -149,17 +103,27 @@ export default function AssetPreview() {
         );
     }
 
-    if (!data) {
+    if (!user || !data) {
         return (
             <div className="animate-slide-up" style={{ padding: "3rem 2rem", maxWidth: "1200px", margin: "0 auto" }}>
                 <Navbar />
                 <div style={{ textAlign: "center", paddingTop: "15vh" }}>
                     <h1 className="heading-display" style={{ fontSize: "2rem", marginBottom: "1rem" }}>No Scout Data Found</h1>
-                    <p style={{ color: "var(--rope)", marginBottom: "2rem" }}>This scout may have expired or hasn't finished yet.</p>
-                    <Link href="/" className="btn-scout" style={{ textDecoration: "none" }}>New Scout</Link>
+                    <p style={{ color: "var(--rope)", marginBottom: "2rem" }}>{!user ? 'Sign in to open your saved pack.' : loadError || 'This scout is unavailable for your account. Older guest packs are not attached to an account.'}</p>
+                    <Link href={!user ? "/login" : "/scout"} className="btn-scout" style={{ textDecoration: "none" }}>{!user ? "Sign in" : "New Scout"}</Link>
                 </div>
             </div>
         );
+    }
+
+    if (!data.pages.length) {
+        return <div style={{padding:'3rem 2rem',maxWidth:'880px',margin:'0 auto'}}>
+            <Navbar />
+            <h1 className="heading-display">{data.status === 'failed' ? 'Capture did not finish' : 'Capture in progress'}</h1>
+            <p>{data.status === 'failed' ? 'No images were saved in this pack. Try the website again.' : 'A capture can take up to four minutes. Refresh to check its status. If it was interrupted, start a new scout.'}</p>
+            <button className="btn-scout" onClick={() => window.location.reload()}>Refresh</button>{' '}
+            <Link href={`/scout?url=${encodeURIComponent(data.url)}`} className="btn-outline">Try a new scout</Link>
+        </div>;
     }
 
     return (
@@ -169,7 +133,7 @@ export default function AssetPreview() {
             <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem", flexWrap: "wrap", gap: "1.5rem" }}>
                 <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "0.5rem" }}>
-                        <span className="merit-badge animate-stamp">Scout Complete</span>
+                        <span className="merit-badge animate-stamp">{data.status === "complete" ? "Asset Pack Ready" : "Captured Images"}</span>
                     </div>
                     <h1 className="heading-display" style={{ fontSize: "2.5rem" }}>Asset Pack</h1>
                     <p style={{ fontFamily: "var(--font-mono)", color: "var(--rope)", fontSize: "0.9rem", marginTop: "0.25rem" }}>
@@ -177,15 +141,20 @@ export default function AssetPreview() {
                     </p>
                 </div>
                 <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-                    <button className="btn-outline" onClick={handleShareLink} style={{ fontSize: "0.85rem", height: "fit-content" }}>📋 Share Link</button>
-                    <button className="btn-campfire" onClick={handleDownload} disabled={downloading} style={{ display: "flex", alignItems: "center", gap: "6px", height: "fit-content" }}>
+                    <span style={{fontSize:"0.85rem",color:"var(--rope)"}}>Private to your account.</span>
+                    <button className="btn-campfire" onClick={() => void download()} disabled={!!downloading} style={{ display: "flex", alignItems: "center", gap: "6px", height: "fit-content" }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
                         </svg>
-                        {downloading ? "Packing..." : "Download (.zip)"}
+                        {downloading === 'zip' ? "Checking download…" : "Download (.zip)"}
                     </button>
                 </div>
             </header>
+            {(downloadError || stageError) && <p role="alert">{downloadError || stageError}</p>}
+            {downloading && <p role="status">Preparing and checking your {downloading === 'zip' ? 'ZIP' : 'image'} download…</p>}
+            {!data.enhancedAssets?.length && <p>Mockups are not ready. <button className="btn-outline" disabled={!!working} onClick={() => retryStage('enhance')}>{working === 'enhance' ? 'Creating mockups…' : 'Create mockups'}</button></p>}
+            {!data.copy && <p>Marketing copy has not been generated. <button className="btn-outline" disabled={!!working} onClick={() => retryStage('copy')}>{working === 'copy' ? 'Writing…' : 'Generate copy'}</button></p>}
+            {data.copy && <p>AI draft: check the facts and edit before publishing.</p>}
 
             <hr className="rope-divider" />
 
@@ -200,7 +169,7 @@ export default function AssetPreview() {
                         <div className="patch-card" style={{ padding: "2rem" }}>
                             <span className="label-scout" style={{ display: "block", marginBottom: "0.75rem" }}>Elevator Pitch</span>
                             <p style={{ fontFamily: "var(--font-display)", fontSize: "1.3rem", color: "var(--forest-deep)", lineHeight: 1.4 }}>
-                                {data.copy?.pitch || "Your product, beautifully scouted."}
+                                {data.copy?.pitch || "No marketing draft is available yet."}
                             </p>
                             {data.copy?.tagline && (
                                 <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)", marginTop: "1rem", fontStyle: "italic" }}>
@@ -249,7 +218,7 @@ export default function AssetPreview() {
                                 <span className="label-scout" style={{ display: "block", marginBottom: "0.75rem", textAlign: "center" }}>Desktop</span>
                                 {desktopHeroes.map((shot, i) => (
                                     <div key={i} className="patch-card" style={{ padding: "0.5rem", overflow: "hidden", marginBottom: "1rem" }}>
-                                        <img src={getAssetUrl(shot.path)} alt="Desktop" style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                        <PrivateImage scoutId={data.id} filename={shot.path} alt="Desktop" style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     </div>
                                 ))}
                             </div>
@@ -257,7 +226,7 @@ export default function AssetPreview() {
                                 <span className="label-scout" style={{ display: "block", marginBottom: "0.75rem", textAlign: "center" }}>📱 Mobile</span>
                                 {mobileHeroes.map((shot, i) => (
                                     <div key={i} className="patch-card" style={{ padding: "0.5rem", overflow: "hidden", marginBottom: "1rem" }}>
-                                        <img src={getAssetUrl(shot.path)} alt="Mobile" style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                        <PrivateImage scoutId={data.id} filename={shot.path} alt="Mobile" style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     </div>
                                 ))}
                             </div>
@@ -275,10 +244,10 @@ export default function AssetPreview() {
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1.5rem" }}>
                                     {rawHeroes.map((shot, i) => (
                                         <div key={i} className="patch-card" style={{ padding: "0.75rem", overflow: "hidden" }}>
-                                            <img src={getAssetUrl(shot.path)} alt={`${shot.viewport} hero`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                            <PrivateImage scoutId={data.id} filename={shot.path} alt={`${shot.viewport} hero`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)", textTransform: "capitalize" }}>{shot.viewport} · {shot.width}×{shot.height}</span>
-                                                <button onClick={() => downloadIndividual(shot.path)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                                <button onClick={() => void download(shot.path)} disabled={!!downloading} aria-label={`Save ${getFilename(shot.path)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                             </div>
                                         </div>
                                     ))}
@@ -296,10 +265,10 @@ export default function AssetPreview() {
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1.5rem" }}>
                                     {rawFeatures.map((shot, i) => (
                                         <div key={i} className="patch-card" style={{ padding: "0.75rem", overflow: "hidden" }}>
-                                            <img src={getAssetUrl(shot.path)} alt={`Feature ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                            <PrivateImage scoutId={data.id} filename={shot.path} alt={`Feature ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>Feature {i + 1}</span>
-                                                <button onClick={() => downloadIndividual(shot.path)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                                <button onClick={() => void download(shot.path)} disabled={!!downloading} aria-label={`Save ${getFilename(shot.path)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                             </div>
                                         </div>
                                     ))}
@@ -319,10 +288,10 @@ export default function AssetPreview() {
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1.5rem" }}>
                             {heroAssets.map((asset, i) => (
                                 <div key={i} className="patch-card" style={{ padding: "0.75rem", overflow: "hidden" }}>
-                                    <img src={getAssetUrl(asset)} alt={`Enhanced ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                    <PrivateImage scoutId={data.id} filename={asset} alt={`Enhanced ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                        <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                        <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                     </div>
                                 </div>
                             ))}
@@ -339,10 +308,10 @@ export default function AssetPreview() {
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem" }}>
                             {mockupAssets.map((asset, i) => (
                                 <div key={i} className="patch-card" style={{ padding: "0.75rem", overflow: "hidden", background: "var(--parchment)" }}>
-                                    <img src={getAssetUrl(asset)} alt={`Mockup ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                    <PrivateImage scoutId={data.id} filename={asset} alt={`Mockup ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                        <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                        <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                     </div>
                                 </div>
                             ))}
@@ -359,10 +328,10 @@ export default function AssetPreview() {
                         </div>
                         {gridAssets.map((asset, i) => (
                             <div key={i} className="patch-card" style={{ padding: "0.75rem", overflow: "hidden", marginBottom: "1.5rem" }}>
-                                <img src={getAssetUrl(asset)} alt={`Collage ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                <PrivateImage scoutId={data.id} filename={asset} alt={`Collage ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                     <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                    <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                    <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                 </div>
                             </div>
                         ))}
@@ -379,10 +348,10 @@ export default function AssetPreview() {
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1.5rem" }}>
                             {socialAssets.map((asset, i) => (
                                 <div key={i} className="patch-card" style={{ padding: "0.75rem", overflow: "hidden" }}>
-                                    <img src={getAssetUrl(asset)} alt={`Social ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+                                    <PrivateImage scoutId={data.id} filename={asset} alt={`Social ${i + 1}`} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.25rem 0.25rem" }}>
                                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--rope)" }}>{getFilename(asset)}</span>
-                                        <button onClick={() => downloadIndividual(asset)} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
+                                        <button onClick={() => void download(asset)} disabled={!!downloading} aria-label={`Save ${getFilename(asset)}`} className="btn-outline" style={{ padding: "4px 10px", fontSize: "0.7rem" }}>↓ Save</button>
                                     </div>
                                 </div>
                             ))}

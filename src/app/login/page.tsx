@@ -18,9 +18,9 @@ export default function Login() {
             setLoading(true);
             const provider = new GoogleAuthProvider();
             await signInWithPopup(auth, provider);
-            window.location.href = "/dashboard";
-        } catch (err: any) {
-            setError(err.message || "Failed to sign in with Google");
+            window.location.href = new URLSearchParams(window.location.search).get('next') === '/scout' ? '/scout' : '/dashboard';
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Failed to sign in with Google");
         } finally {
             setLoading(false);
         }
@@ -36,9 +36,9 @@ export default function Login() {
             } else {
                 await createUserWithEmailAndPassword(auth, email, password);
             }
-            window.location.href = "/dashboard";
-        } catch (err: any) {
-            setError(err.message || `Failed to ${isLogin ? "sign in" : "sign up"}`);
+            window.location.href = new URLSearchParams(window.location.search).get('next') === '/scout' ? '/scout' : '/dashboard';
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : `Failed to ${isLogin ? "sign in" : "sign up"}`);
         } finally {
             setLoading(false);
         }
@@ -61,9 +61,11 @@ export default function Login() {
 
                     <form onSubmit={handleEmailAuth} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
                         <div>
-                            <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Email</label>
+                            <label htmlFor="login-email" className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Email</label>
                             <input
                                 type="email"
+                                id="login-email"
+                                autoComplete="email"
                                 required
                                 className="input-scout"
                                 placeholder="scout@trail.com"
@@ -73,9 +75,11 @@ export default function Login() {
                             />
                         </div>
                         <div>
-                            <label className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Password</label>
+                            <label htmlFor="login-password" className="label-scout" style={{ display: "block", marginBottom: "0.5rem" }}>Password</label>
                             <input
                                 type="password"
+                                id="login-password"
+                                autoComplete={isLogin ? 'current-password' : 'new-password'}
                                 required
                                 className="input-scout"
                                 placeholder="••••••••"

@@ -1,0 +1,10 @@
+{
+  "title": "MyScouter preview capture dispatch",
+  "description": "Run/cancel only the specifically bound preview capture job. No data, identity administration or deployment permission.",
+  "stage": "GA",
+  "includedPermissions": [
+    "run.jobs.run",
+    "run.jobs.runWithOverrides",
+    "run.executions.cancel"
+  ]
+}

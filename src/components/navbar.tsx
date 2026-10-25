@@ -51,6 +51,7 @@ export function Navbar() {
                     )
                 )}
             </div>
+            {!loading && user && <p className="account-identity" aria-label="Signed in account">Private account: <strong>{user.email || user.displayName || 'Signed in'}</strong></p>}
         </header>
     );
 }

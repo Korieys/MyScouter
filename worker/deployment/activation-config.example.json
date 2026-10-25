@@ -1,0 +1,37 @@
+{
+  "target": "preview",
+  "gitBranch": "codex/customer-ready-download",
+  "values": {
+    "CAPTURE_WORKER_MODE": "cloud-run-jobs",
+    "CAPTURE_WORKER_ENABLED": "true",
+    "CAPTURE_WORKER_PROJECT": "myscouter-5f16b",
+    "CAPTURE_WORKER_PROJECT_NUMBER": "778860260835",
+    "CAPTURE_WORKER_REGION": "us-central1",
+    "CAPTURE_WORKER_JOB": "myscouter-preview-capture",
+    "CAPTURE_WORKER_DISPATCHER": "myscouter-preview-dispatch@myscouter-5f16b.iam.gserviceaccount.com",
+    "CAPTURE_WORKER_RUNTIME_EMAIL": "myscouter-preview-capture@myscouter-5f16b.iam.gserviceaccount.com",
+    "CAPTURE_WORKER_RUNTIME_SUBJECT": "OUTPUT_FROM_CREATED_NAMED_SERVICE_ACCOUNT",
+    "CAPTURE_WORKER_BROKER_URL": "https://my-scouter-git-codex-customer-ready-download-korieys-projects.vercel.app/api/capture-worker",
+    "CAPTURE_WORKER_JOB_ETAG": "OUTPUT_FROM_VERIFIED_APPROVED_JOB",
+    "CAPTURE_WORKER_WIF_POOL": "myscouter-preview",
+    "CAPTURE_WORKER_WIF_PROVIDER": "vercel-preview",
+    "CAPTURE_WORKER_ACCOUNT_HASH": "68411256b583176eb38900681b5b833949fc3785904f811e23314799ca93c5fc",
+    "CAPTURE_WORKER_WINDOW_ID": "isolation-preview-2026-10-25",
+    "CAPTURE_WORKER_WINDOW_END": "2026-10-27T00:00:00.000Z"
+  },
+  "secret": {
+    "CAPTURE_WORKER_ENVELOPE_KEY": "GENERATE_32_RANDOM_BYTES_IN_API_SECRET_MECHANISM; NEVER_COPY_TO_WORKER"
+  },
+  "remainDisabled": [
+    "ACCOUNT_DELETION_ENABLED",
+    "MAINTENANCE_APPLY_ENABLED",
+    "CAPTURE_WORKER_MAINTENANCE_ENABLED",
+    "CAPTURE_WORKER_LOGIN_ENABLED"
+  ],
+  "protectionExceptionProposal": {
+    "domain": "my-scouter-git-codex-customer-ready-download-korieys-projects.vercel.app",
+    "temporary": true,
+    "materialEffect": "Removes Vercel Deployment Protection for this entire preview domain, not only the broker path. Application Firebase and worker JWT/capability authorization remain mandatory. Requires explicit approval; not applied."
+  },
+  "authenticatedWorkerCapture": "Local fictional fixtures only. Hosted proposal is public-only; no password-retention policy or UI storage-consent change is approved."
+}

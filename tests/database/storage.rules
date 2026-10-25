@@ -1,0 +1,7 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Disposable emulator fixture, not a production rules deployment.
+    match /{path=**} { allow read, write: if false; }
+  }
+}

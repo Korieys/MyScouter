@@ -1,0 +1,10 @@
+{
+  "status": "requires-specific-approval-not-applied",
+  "vercelProject": "my-scouter",
+  "gitBranch": "codex/customer-ready-download",
+  "domain": "my-scouter-git-codex-customer-ready-download-korieys-projects.vercel.app",
+  "effect": "Entire exact preview domain publicly reachable at platform layer, including all current/future deployments for that domain; application Firebase and worker JWT/capability checks remain.",
+  "pathScoped": false,
+  "removeBy": "2026-10-27T00:00:00.000Z",
+  "automationBypassSecretToWorker": false
+}

@@ -2,34 +2,62 @@
   "name": "myscouter",
   "version": "0.1.0",
   "private": true,
+  "overrides": {
+    "jwks-rsa": {
+      "jose": "5.10.0"
+    },
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "1.14.6"
+    },
+    "chromium-bidi": "157.0.8090-0"
+  },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:readiness": "tsx --test src/lib/*.test.mjs",
+    "test:database": "tsx --test tests/database/*.test.mjs",
+    "test:ui": "tsx --test tests/ui/*.test.mjs",
+    "test:browser-network": "tsx --test tests/browser/capture-network.test.mjs",
+    "test:browser-download": "tsx --test tests/browser/download-save.test.mjs",
+    "test:browser-login": "tsx --test tests/browser/capture-login.test.mjs",
+    "maintenance:plan": "tsx scripts/maintenance.ts",
+    "test:preview-boundary": "node --test tests/preview-boundary.test.mjs",
+    "test:worker": "tsx --test tests/worker/*.test.mjs",
+    "maintenance:worker": "tsx scripts/capture-worker-maintenance.ts",
+    "test:worker-container": "node --import tsx tests/worker/container-journey.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "@sparticuz/chromium-min": "^143.0.4",
+    "@sparticuz/chromium-min": "153.0.0",
     "@types/archiver": "^7.0.0",
     "archiver": "^7.0.1",
     "firebase": "^12.9.0",
-    "firebase-admin": "^13.6.1",
-    "next": "16.1.6",
+    "firebase-admin": "14.5.0",
+    "next": "16.4.3",
     "openai": "^6.22.0",
-    "puppeteer": "^24.37.5",
-    "puppeteer-core": "^24.37.5",
+    "puppeteer": "25.11.0",
+    "puppeteer-core": "25.11.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "sharp": "^0.34.5"
+    "sharp": "0.35.5",
+    "jose": "5.10.0",
+    "@google-cloud/storage": "8.4.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^20",
     "@types/puppeteer-core": "^5.4.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jsdom": "^29.1.1",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

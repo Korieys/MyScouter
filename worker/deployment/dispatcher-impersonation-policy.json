@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "bindings": [
+    {
+      "role": "roles/iam.workloadIdentityUser",
+      "members": [
+        "principal://iam.googleapis.com/projects/778860260835/locations/global/workloadIdentityPools/myscouter-preview/subject/owner:korieys-projects:project:my-scouter:environment:preview"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "status": "proposed-not-created",
+  "project": "myscouter-5f16b",
+  "projectNumber": "778860260835",
+  "region": "us-central1",
+  "requiredApis": [
+    "run.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "sts.googleapis.com",
+    "billingbudgets.googleapis.com"
+  ],
+  "enableOnlyIfMissing": true,
+  "newResources": {
+    "repository": {
+      "id": "myscouter-preview-worker",
+      "format": "DOCKER",
+      "location": "us-central1"
+    },
+    "runtimeServiceAccount": {
+      "accountId": "myscouter-preview-capture",
+      "projectOrBucketRoles": [],
+      "keys": 0
+    },
+    "dispatchServiceAccount": {
+      "accountId": "myscouter-preview-dispatch",
+      "keys": 0
+    },
+    "role": {
+      "id": "myscouterPreviewDispatch",
+      "policyFile": "dispatch-role.json"
+    },
+    "pool": {
+      "id": "myscouter-preview",
+      "location": "global"
+    },
+    "provider": {
+      "id": "vercel-preview",
+      "file": "wif-provider.json"
+    },
+    "job": {
+      "id": "myscouter-preview-capture",
+      "file": "job.json"
+    },
+    "budget": {
+      "file": "budget.json",
+      "billingAccount": "RESOLVE_EXISTING_LINKED_ACCOUNT; STOP_IF_DISABLED"
+    }
+  },
+  "stopOnExistingResourceName": true,
+  "operatorAccess": "Existing authorized operator only; no new human Admin role",
+  "managedServiceAgent": "service-778860260835@serverless-robot-prod.iam.gserviceaccount.com",
+  "noLiveMutationPerformed": true
+}

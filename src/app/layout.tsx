@@ -31,7 +31,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <aside className="preview-notice" aria-label="Preview status">Private capture preview · Customer launch checks are still in progress. Use test data.</aside>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

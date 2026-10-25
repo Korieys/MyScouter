@@ -25,7 +25,8 @@
     "test:browser-network": "tsx --test tests/browser/capture-network.test.mjs",
     "test:browser-download": "tsx --test tests/browser/download-save.test.mjs",
     "test:browser-login": "tsx --test tests/browser/capture-login.test.mjs",
-    "maintenance:plan": "tsx scripts/maintenance.ts"
+    "maintenance:plan": "tsx scripts/maintenance.ts",
+    "test:preview-boundary": "node --test tests/preview-boundary.test.mjs"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",

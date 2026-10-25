@@ -28,6 +28,8 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run build
+      - name: Keep the authenticated test page out of production
+        run: npm run test:preview-boundary
       - name: Verify actual capture browser network boundaries
         run: npm run test:browser-network
         env:

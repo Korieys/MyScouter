@@ -25,6 +25,7 @@ export default function Home() {
   const [loginUrl, setLoginUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [aiLoginConsent, setAiLoginConsent] = useState(false);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [error, setError] = useState("");
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -45,6 +46,12 @@ export default function Home() {
 
     if (!user) {
       router.push("/login");
+      return;
+    }
+
+    // Advanced login shares credentials with OpenAI, so it needs explicit consent.
+    if (authMode === "advanced" && !aiLoginConsent) {
+      setError("Confirm you're OK sharing your login with OpenAI, or switch to Basic login.");
       return;
     }
 
@@ -254,11 +261,34 @@ export default function Home() {
                     <input type="password" placeholder="••••••••" className="input-scout" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isScouting} />
                   </div>
                 </div>
-                {authMode === "advanced" && (
-                  <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--rope)", margin: 0 }}>
-                    AI will analyze the login page and autonomously navigate complex login flows.
+                {/* Privacy disclosure */}
+                <div role="note" style={{ display: "flex", flexDirection: "column", gap: "0.5rem", padding: "0.75rem 0.85rem", background: "var(--canvas-white)", borderRadius: "var(--radius-sm)", border: `1px solid ${authMode === "advanced" ? "var(--campfire)" : "var(--khaki)"}` }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700, letterSpacing: "1px", color: authMode === "advanced" ? "var(--ember)" : "var(--forest)" }}>
+                    HOW YOUR LOGIN IS USED
+                  </span>
+                  {authMode === "advanced" ? (
+                    <p style={{ fontSize: "0.8rem", color: "var(--charcoal)", margin: 0, lineHeight: 1.55 }}>
+                      Advanced login uses AI to work out the sign-in steps. To do that, it sends the login page&apos;s
+                      form fields <strong>and the username and password you enter here to OpenAI</strong>.
+                    </p>
+                  ) : (
+                    <p style={{ fontSize: "0.8rem", color: "var(--charcoal)", margin: 0, lineHeight: 1.55 }}>
+                      Basic login types your username and password into the site from the scout&apos;s own browser.
+                      Your credentials aren&apos;t sent to any AI service.
+                    </p>
+                  )}
+                  <p style={{ fontSize: "0.8rem", color: "var(--charcoal)", margin: 0, lineHeight: 1.55 }}>
+                    Your credentials are only used for this scout and aren&apos;t saved. Text from the pages the scout
+                    visits, including ones behind the login, is sent to OpenAI to write your marketing copy.
+                    Use a demo or test account when you can.
                   </p>
-                )}
+                  {authMode === "advanced" && (
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.8rem", fontWeight: 600, color: "var(--forest-deep)", cursor: "pointer", marginTop: "0.25rem" }}>
+                      <input type="checkbox" required checked={aiLoginConsent} onChange={(e) => { setAiLoginConsent(e.target.checked); setError(""); }} disabled={isScouting} style={{ accentColor: "var(--forest)", marginTop: "3px" }} />
+                      I understand my login details will be shared with OpenAI for this scout.
+                    </label>
+                  )}
+                </div>
               </div>
             )}
 

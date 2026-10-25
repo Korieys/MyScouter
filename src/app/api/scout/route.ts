@@ -635,7 +635,8 @@ ${JSON.stringify(domMap, null, 2)}`,
             const jsonMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/);
             actions = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
         } catch {
-            console.error("AI returned unparseable actions:", raw);
+            // Don't log the raw reply: it can echo the user's password.
+            console.error(`AI returned unparseable actions (${raw.length} chars)`);
             break;
         }
 
@@ -656,7 +657,8 @@ ${JSON.stringify(domMap, null, 2)}`,
                     await page.keyboard.press(act.key as any);
                 }
             } catch (e) {
-                console.warn("Action failed:", act, e);
+                // Redact typed values so credentials never reach the server logs.
+                console.warn("Action failed:", { ...act, value: act.value ? "[redacted]" : undefined }, e);
             }
         }
 

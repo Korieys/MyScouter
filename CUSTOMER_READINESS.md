@@ -1,6 +1,10 @@
 # MyScouter customer-readiness repair
 
-Status: private capture preview on draft PR #1; customer launch and production release remain unapproved. The October 25 continuation proves fresh hosted early progress, capture/copy, history reopening, a checked ten-image ZIP and the separately approved exact synthetic-pack deletion. Whole-account deletion and automatic maintenance remain disabled pending an operator worker and policy.
+Status: protected private capture preview on draft PR #1; customer launch and production release remain unapproved. Hosted second-account isolation, paging, daily-cap/replay, owned 50-image capture/download and exact approved fixture cleanup now pass. Isolated browser execution and live account/retention operations remain incomplete.
+
+## Latest hosted account verification
+
+See [HOSTED_ACCOUNT_VERIFICATION.md](HOSTED_ACCOUNT_VERIFICATION.md) for the exact 7058d88 implementation, 116-check CI and real hosted proof. The first account’s three packs were unavailable to the second account through metadata, image, ZIP and processing APIs; eight direct object URLs returned 403. The second account saved a two-page/three-layout 50-PNG ZIP (11,910,540 bytes; full CRC and decode pass). Hosted paging reached 20/40/47 unique records; separately approved cleanup removed only 45 fixed metadata fixtures and left the two non-fixture records intact. Daily-cap 429/Retry-After/replay passed; existing downloads and cached work still functioned. The test account remains signed in and is capture-limited until 00:00 UTC.
 
 ## October 25 continuation
 
@@ -86,12 +90,11 @@ Fourteen database-emulator groups exercise real concurrent transactions, account
 
 ## Remaining release gates
 
-- Dedicated second-account hosted history/pack isolation and broader write/revocation checks. The owner authorized test sessions and was handed the dedicated preview sign-in tab; completion is still pending. No password was requested in chat.
-- Hosted supported website-login compatibility using a specifically authorized dedicated fixture/site. Six fictional Chromium scenarios pass; they do not prove a hosted provider. No real third-party credentials were reused.
-- Hosted older-history paging, daily/global quota exhaustion and retry/recovery beyond observed same-account concurrency. Emulator paging covers 45 records and quota/replay cases; the current hosted owner has only three packs, so there is no real second page to certify. Do not generate billable captures merely to fill history.
-- Implement and deploy an isolated capture runtime with a restricted identity and no API Firebase/OpenAI secrets. Current browser execution still shares the API runtime. The documented worker boundary is a launch plan, not completed isolation.
-- Owner-defined retention, account-deletion completion target, provider backup treatment, support owner, spending ceiling and alert destination; monitored maintenance and actual alert delivery. Account deletion remains intentionally disabled. Operator signals are not delivered alerts or dollar guarantees.
-- Physical phone/Safari normal and large ZIP tests; current browser buffers files for hashing. Chromium CI proves a 128-MiB synthetic archive and a 390px touch viewport, not physical-device memory limits.
-- Separate review of legacy public data/ownership and the dormant unused BiDi asset. The upstream stream warning remains enabled and is not declared an application leak.
+- Positive hosted native-form website login. The owner selected korieygrotesk.com for public capture only. Six Chromium login fixtures and a real unsupported-login stop do not prove a hosted provider.
+- An isolated capture runtime with restricted identity and no API Firebase/OpenAI secrets. The browser still shares the API process.
+- Approved monitored retention/account-deletion worker, provider backup policy, operator spending/alert/support ownership and delivered alert proof. Whole-account deletion remains disabled.
+- Real session revocation, hosted worker interruption, global daily exhaustion and broader edge abuse/recovery. The per-account daily cap and rejection replay are now hosted-proven.
+- Physical phone/Safari normal and large ZIP behavior. Windows in-app-browser 11.9-MB and Linux synthetic 128-MiB saves have narrower scope.
+- Legacy public data/ownership review and the documented dormant unsupported BiDi asset.
 
-No application merge or production deployment, payment, outbound test message, live account deletion, automatic retention or unrelated customer-pack deletion was performed. The exact separately approved synthetic deletion is the sole hosted destructive action in this continuation.
+No application merge/production release, IAM grant, payment or outbound notification was performed. The previously approved single synthetic-pack deletion and this turn’s separately approved 45-row fixture cleanup are the only hosted destructive operations. All other packs, images and accounts were preserved. No usage counters were reset.

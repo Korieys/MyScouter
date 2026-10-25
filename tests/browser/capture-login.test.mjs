@@ -11,13 +11,12 @@ const login={mode:'basic',url:origin+'/login',username:'fictional-owner@example.
 const form=(extra='',action='/session',method='post')=>`<!doctype html><form method="${method}" action="${action}"><label>Username<input name="username" autocomplete="username"></label><label>Password<input name="password" type="password"></label><button type="submit">Sign in</button>${extra}</form>`;
 
 test('real browser verifies bounded native login using only synthetic responses and credentials',{timeout:180000},async t=>{
- const browser=process.platform==='linux'?await core.launch({executablePath:await chromium.executablePath('https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar'),args:chromium.args,headless:'shell',pipe:true,protocolTimeout:15000}):await puppeteer.launch({channel:'chrome',headless:true,pipe:true,protocolTimeout:15000});
+ const browsers=new Set();
  const fixture=async(html,options={})=>{
-  // Serverless Chromium supports its default context (the application's model).
-  // This entire browser is disposable; clear only its fictional fixture cookies.
-  const context=browser.defaultBrowserContext();
-  const cookies=await context.cookies();
-  if(cookies.length)await context.deleteCookie(...cookies);
+  // Match production: one browser and default context per capture. Closing only
+  // an error-page target can stall in single-process serverless Chromium.
+  const browser=process.platform==='linux'?await core.launch({executablePath:await chromium.executablePath('https://github.com/Sparticuz/chromium/releases/download/v153.0.0/chromium-v153.0.0-pack.x64.tar'),args:chromium.args,headless:'shell',pipe:true,protocolTimeout:15000}):await puppeteer.launch({channel:'chrome',headless:true,pipe:true,protocolTimeout:15000});
+  browsers.add(browser);
   const page=await browser.newPage();
   const credentials={...login,mode:options.advanced?'advanced':'basic'};
   const controls=await prepareCapturePage(page,credentials),posts=[],blocked=[];
@@ -39,7 +38,7 @@ test('real browser verifies bounded native login using only synthetic responses 
    const content=url.pathname==='/login'?html:authenticated?`<h1>Fictional customer page</h1><p>${login.username} ${login.password}</p><form method="post" action="/delete"><button>Delete</button></form>`:form();
    void request.respond({status:200,contentType:'text/html',body:content},0);
   });
-  return {page,controls,credentials,posts,blocked,close:()=>page.close()};
+  return {page,controls,credentials,posts,blocked,close:async()=>{await browser.close();browsers.delete(browser);}};
  };
  try {
   await t.test('basic login posts credentials once, redacts captured content, then blocks writes and outside origins',async()=>{
@@ -94,5 +93,5 @@ test('real browser verifies bounded native login using only synthetic responses 
    try {await assert.rejects(signInForCapture(f.page,f.credentials,new URL(origin+'/account'),f.controls,async()=>({password:1,submit:2,action:'delete'})),{status:422});assert.equal(f.posts.length,0);}
    finally {await f.close();}
   });
- } finally {await browser.close();}
+ } finally {await Promise.all([...browsers].map(browser=>browser.close()));}
 });

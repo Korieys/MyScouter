@@ -1,4 +1,6 @@
 import { FieldPath, type Firestore } from 'firebase-admin/firestore';
+import {maintenanceReason,recoverInterruptedCapture} from './scout-maintenance';
+import type {ScoutRecord} from './scout-access';
 import { ScoutError, validScoutId } from './scout-access';
 import { SCOUT_COLLECTION } from './scout-server';
 import type { ScoutHistoryPage } from './scout-history-types';
@@ -26,9 +28,14 @@ export async function readScoutHistory(db: Firestore, uid: string, cursor: strin
     const snapshot = await query.limit(PAGE_SIZE + 1)
         .select('url', 'domain', 'status', 'createdAt', 'devices', 'pages').get();
     const docs = snapshot.docs.slice(0, PAGE_SIZE);
+    const recovered=new Set<string>();
+    await Promise.all(docs.map(async doc=>{
+        const record=doc.data() as ScoutRecord;
+        if(maintenanceReason(record,Date.now())==='interrupted' && await recoverInterruptedCapture(db,uid,doc.id))recovered.add(doc.id);
+    }));
     const scouts = docs.map(doc => {
         const { url, domain, status, createdAt, devices, pages } = doc.data();
-        return { id: doc.id, url, domain, status, createdAt, devices,
+        return { id: doc.id, url, domain, status:recovered.has(doc.id)?'failed':status, createdAt, devices,
             pages: pages.map((page: {url: string; title: string}) => ({url: page.url, title: page.title})) };
     });
     const last = scouts.at(-1);

@@ -297,3 +297,68 @@ test('unexpected storage scope or an unbounded listing cannot broaden or silentl
  assert.equal(lists,11);assert.equal(deletes,1000);assert.equal(maxActive,4);assert.equal((await ref.get()).exists,true);
  await removeScout(db,bucket,uid,ref.id);
 });
+
+import {accountStateRef} from '../../src/lib/account-state.ts';
+import {requestAccountDeletion,processAccountDeletion,recoverInterruptedCapture,INTERRUPTED_AFTER_MS,REVOKED_TOKEN_DRAIN_MS} from '../../src/lib/scout-maintenance.ts';
+
+test('interrupted captures recover after the writer fence, preserve neighbors and cannot be completed by an expired worker',async()=>{
+ const uid=randomUUID(),other=randomUUID(),ref=await scout(uid),start=Date.parse('2026-10-24T12:00:00.000Z');
+ const store=workStore(db,()=>start),reservation=await store.reserve(uid,'capture');
+ await ref.update({status:'capturing',createdAt:new Date(start).toISOString()});
+ await assert.rejects(recoverInterruptedCapture(db,other,ref.id,start+INTERRUPTED_AFTER_MS),{status:404});
+ assert.equal(await recoverInterruptedCapture(db,uid,ref.id,start+INTERRUPTED_AFTER_MS-1),false);
+ assert.equal(await recoverInterruptedCapture(db,uid,ref.id,start+INTERRUPTED_AFTER_MS),true);
+ const saved=(await ref.get()).data();assert.equal(saved.status,'failed');assert.equal(saved.progress.progress,-1);
+ assert.equal(await recoverInterruptedCapture(db,uid,ref.id,start+INTERRUPTED_AFTER_MS),false);
+ await assert.rejects(workStore(db,()=>start+INTERRUPTED_AFTER_MS).complete(reservation.lease,ref,{status:'captured'}),{status:409});
+ assert.equal((await ref.get()).data().status,'failed');
+});
+
+test('account deletion conflicts with active work and fences reads, cached results and new reservations',async()=>{
+ const uid=randomUUID(),ref=await scout(uid),now=Date.now(),store=workStore(db,()=>now);
+ const active=await store.reserve(uid,'capture');
+ await assert.rejects(requestAccountDeletion(db,uid,now/1000,now),{status:409});
+ assert.equal((await accountStateRef(db,uid).get()).exists,false);
+ await store.release(active.lease);
+ await requestAccountDeletion(db,uid,now/1000,now);
+ await requestAccountDeletion(db,uid,now/1000,now);
+ const access=createScoutAccess(()=>({db,auth:{verifyIdToken:async()=>({uid})}}));
+ await assert.rejects(access.requireScout(new Request('https://app.example',{headers:{Authorization:'Bearer fictional'}}),ref.id),{status:410});
+ for(const kind of ['capture','enhance','copy'])await assert.rejects(store.reserve(uid,kind,kind==='capture'?undefined:ref),{status:410});
+ assert.equal((await accountRef(uid,'capture').get()).data().attempts,1,'started attempts remain counted');
+});
+
+test('account deletion drains only owned packs, waits out client tokens and recovers from identity failure',async()=>{
+ const uid=randomUUID(),other=randomUUID(),a=await scout(uid),b=await scout(uid),neighbor=await scout(other),now=Date.now(),events=[];
+ const file=ref=>bucket.file(`private-scouts/${ref.id}/fictional.png`);
+ for(const ref of [a,b,neighbor])await file(ref).save(Buffer.from('fictional emulator bytes'));
+ await db.collection('users').doc(uid).set({displayName:'Fictional lifecycle account'});
+ await requestAccountDeletion(db,uid,now/1000,now);
+ let failIdentity=true;
+ const services={db,bucket,auth:{
+  updateUser:async(id,patch)=>{assert.equal(id,uid);assert.equal(patch.disabled,true);events.push('disable');},
+  revokeRefreshTokens:async id=>{assert.equal(id,uid);events.push('revoke');},
+  deleteUser:async id=>{assert.equal(id,uid);events.push('delete');if(failIdentity)throw Error('Synthetic identity failure');},
+ }};
+ assert.equal((await processAccountDeletion(services,uid,now)).removedPack,true);
+ assert.equal((await processAccountDeletion(services,uid,now)).removedPack,true);
+ assert.deepEqual(events,['disable','revoke']);
+ assert.equal((await file(neighbor).exists())[0],true);
+ assert.equal((await neighbor.get()).exists,true);
+ for(const ref of [a,b]){assert.equal((await ref.get()).exists,false);assert.equal((await file(ref).exists())[0],false);}
+ assert.equal((await processAccountDeletion(services,uid,now+REVOKED_TOKEN_DRAIN_MS-1)).state,'deleting');
+ assert.equal((await db.collection('users').doc(uid).get()).exists,true);
+ await assert.rejects(processAccountDeletion(services,uid,now+REVOKED_TOKEN_DRAIN_MS),/Synthetic identity failure/);
+ assert.equal((await accountStateRef(db,uid).get()).data().state,'deleting');
+ failIdentity=false;assert.equal((await processAccountDeletion(services,uid,now+REVOKED_TOKEN_DRAIN_MS)).state,'complete');
+ assert.equal((await processAccountDeletion(services,uid,now+REVOKED_TOKEN_DRAIN_MS+1)).state,'complete');
+ assert.equal((await db.collection('users').doc(uid).get()).exists,false);
+ assert.equal((await accountStateRef(db,uid).get()).data().uid,null);
+});
+
+test('an approved retention plan cannot delete a pack updated after inspection',async()=>{
+ const uid=randomUUID(),ref=await scout(uid),version=(await ref.get()).updateTime.toMillis();
+ await ref.update({textContent:'New fictional owner edit'});
+ await assert.rejects(removeScout(db,bucket,uid,ref.id,version),{status:409});
+ assert.equal((await ref.get()).data().status,'captured');
+});

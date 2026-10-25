@@ -1,4 +1,5 @@
 import { getAdmin } from './firebase-admin';
+import {assertAccountActive} from './account-state';
 import { assertOwner, assetName, recordedAssets, ScoutError, storedAssetPath, validScoutId, validProgressId, verifiedUser, type ScoutRecord } from './scout-access';
 export const SCOUT_COLLECTION = 'privateScouts';
 export function createScoutAccess(services: typeof getAdmin) {
@@ -9,7 +10,7 @@ export function createScoutAccess(services: typeof getAdmin) {
         let configured:ReturnType<typeof getAdmin>;
         try {configured=services();} catch {throw new ScoutError(503,'Account services are temporarily unavailable. Please try again later.');}
         return configured.auth.verifyIdToken(token, revoked);
-    });
+    }).then(async uid=>{await assertAccountActive(services().db,uid);return uid;});
     requestIdentities.set(request,identity); return identity;
  }
  async function requireScout(request: Request, id: unknown) {

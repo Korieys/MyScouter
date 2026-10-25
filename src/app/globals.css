@@ -792,3 +792,5 @@ button:disabled {
     font-size: 0.75rem;
   }
 }
+
+.preview-notice { padding: 0.7rem 1.25rem; text-align: center; font-size: 0.85rem; line-height: 1.5; color: var(--forest-deep); background: var(--khaki-light); border-bottom: 1px solid var(--forest); }

@@ -8,9 +8,9 @@ type Bucket = ReturnType<typeof getAdmin>['bucket'];
 const CLEANUP_MS=40_000;
 const FILE_LIMIT=1000;
 
-export async function removeScout(db:Firestore, bucket:Bucket, uid:string, value:unknown) {
+export async function removeScout(db:Firestore, bucket:Bucket, uid:string, value:unknown, expectedUpdateMs?:number) {
     const id=validScoutId(value),ref=db.collection(SCOUT_COLLECTION).doc(id),store=workStore(db);
-    await store.beginDeletion(uid,ref);
+    await store.beginDeletion(uid,ref,expectedUpdateMs);
     const deadline=Date.now()+CLEANUP_MS;
     const bounded=async<T>(operation:()=>Promise<T>):Promise<T>=>{
         const remaining=deadline-Date.now();

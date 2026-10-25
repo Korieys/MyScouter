@@ -12,11 +12,11 @@ export async function launchCaptureBrowser(proxyUrl: string, viewport: Viewport)
         );
         return puppeteerCore.launch({
             args: captureBrowserArgs(proxyUrl, chromium.args),
-            defaultViewport: viewport, executablePath, headless: 'shell', pipe: true,
+            defaultViewport: viewport, executablePath, headless: 'shell', pipe: true, browser: 'chrome', protocol: 'cdp',
         });
     }
     return puppeteerDev.launch({
-        headless: true, pipe: true, defaultViewport: viewport,
+        headless: true, pipe: true, defaultViewport: viewport, browser: 'chrome', protocol: 'cdp',
         args: captureBrowserArgs(proxyUrl, [
             '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
         ]),

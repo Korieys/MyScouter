@@ -1,4 +1,5 @@
 import {createHash, randomUUID} from 'node:crypto';
+import {accountStateRef} from './account-state';
 import {FieldValue, type DocumentReference, type Firestore} from 'firebase-admin/firestore';
 import {assertOwner, assetName, ScoutError, type ScoutRecord} from './scout-access';
 import {secondsUntilReset, WORK_LIMITS, type WorkKind} from './work-policy';
@@ -34,12 +35,24 @@ export function workStore(db:Firestore, clock:()=>number = Date.now, limits = WO
         global:db.collection(LIMIT_COLLECTION).doc(`global-${kind}`),
     });
     return {
-        async beginDeletion(uid:string,scout:DocumentReference) {
+        async beginAccountDeletion(uid:string) {
+            const state=accountStateRef(db,uid);
+            const accounts=(['capture','enhance','copy'] as const).map(kind=>refs(uid,kind).account);
+            await db.runTransaction(async transaction=>{
+                const snapshots=await transaction.getAll(state,...accounts);
+                if(snapshots[0].exists)return;
+                const now=clock();
+                if(snapshots.slice(1).some(snapshot=>bucket(snapshot.data(),now).active.length))throw new ScoutError(409,'Wait for your capture or processing to finish before deleting your account.');
+                transaction.create(state,{uid,state:'deleting',requestedAt:new Date(now).toISOString()});
+            });
+        },
+        async beginDeletion(uid:string,scout:DocumentReference,expectedUpdateMs?:number) {
             const accounts = (['capture','enhance','copy'] as const).map(kind=>refs(uid,kind).account);
             await db.runTransaction(async transaction=>{
                 const snapshots=await transaction.getAll(scout,...accounts);
                 const record=snapshots[0].data() as ScoutRecord | undefined;
                 if (!record || record.userId!==uid) throw new ScoutError(404,'This scout is unavailable for your account. Refresh your history to check its latest state.');
+                if(expectedUpdateMs!==undefined && snapshots[0].updateTime?.toMillis()!==expectedUpdateMs)throw new ScoutError(409,'The pack changed after the cleanup plan. Review a fresh plan.');
                 if(record.status==='deleting')return;
                 const now=clock();
                 for(const snapshot of snapshots.slice(1)) {
@@ -64,6 +77,7 @@ export function workStore(db:Firestore, clock:()=>number = Date.now, limits = WO
             const token=randomUUID();
             return db.runTransaction(async transaction => {
                 const now=clock();
+                if((await transaction.get(accountStateRef(db,uid))).exists)throw new ScoutError(410,'Account deletion has started.');
                 let record:ScoutRecord | undefined;
                 if (scout) {
                     record=assertOwner((await transaction.get(scout)).data() as ScoutRecord | undefined,uid);
@@ -86,9 +100,10 @@ export function workStore(db:Firestore, clock:()=>number = Date.now, limits = WO
         async complete(lease:WorkLease,scout:DocumentReference,patch:Partial<ScoutRecord>) {
             const {account,global}=refs(lease.uid,lease.kind);
             await db.runTransaction(async transaction => {
-                const snapshots=await transaction.getAll(account,global,scout);
+                const snapshots=await transaction.getAll(account,global,scout,accountStateRef(db,lease.uid));
                 const now=clock(),perAccount=bucket(snapshots[0].data(),now),shared=bucket(snapshots[1].data(),now);
                 assertOwner(snapshots[2].data() as ScoutRecord | undefined,lease.uid);
+                if(snapshots[3].exists)throw new ScoutError(410,'Account deletion has started.');
                 if (lease.until<=now || !perAccount.active.some(item=>item.token===lease.token) || !shared.active.some(item=>item.token===lease.token)) {
                     throw new ScoutError(409,'This processing request expired. Reopen your pack and retry.');
                 }
